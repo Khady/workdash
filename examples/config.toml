@@ -1,0 +1,96 @@
+tmux = true
+config_editor = "nvim"
+terminal_launcher = "gnome-terminal --tab -- bash -lc {command}"
+terminal_launcher_default = true
+
+[[repos]]
+root = "/home/me/code/example-repo"
+gh_account = "your-gh-cli-account"
+
+[[hosts]]
+label = "devbox"
+ssh_target = "me@devbox"
+tmux = true
+
+[[hosts.repos]]
+root = "/srv/code/example-repo"
+gh_account = "your-gh-cli-account"
+
+[[commands]]
+id = "open-pr"
+shortcut = "p"
+label = "open PR in browser"
+detail = "{pr_url}"
+command = "xdg-open {pr_url:q}"
+run = "background"
+contexts = ["pr", "worktree", "branch", "tmux"]
+requires = ["pr_url"]
+
+[[commands]]
+id = "open-shell"
+shortcut = "s"
+label = "open shell"
+detail = "{path}"
+command = "bash"
+cwd = "{path}"
+run = "terminal"
+contexts = ["pr", "worktree", "branch"]
+requires = ["path"]
+remote = true
+remote_interactive = true
+
+[[commands]]
+id = "git-status"
+shortcut = "g"
+label = "git status"
+detail = "{repo_root}"
+command = "git status --short --branch"
+cwd = "{repo_root}"
+run = "inline"
+contexts = ["pr", "worktree", "branch"]
+requires = ["repo_root"]
+remote = true
+
+[[commands]]
+id = "open-vscode"
+shortcut = "v"
+label = "open in vscode"
+detail = "{path}"
+command = "code {path:q}"
+run = "background"
+scope = "local"
+contexts = ["pr", "worktree", "tmux"]
+requires = ["path"]
+
+[[commands]]
+id = "open-vscode-remote"
+shortcut = "v"
+label = "open in vscode"
+detail = "{path}"
+command = "code --remote {remote_vscode:q} {path:q}"
+run = "background"
+scope = "remote"
+contexts = ["pr", "worktree", "tmux"]
+requires = ["path", "ssh_target"]
+
+[[commands]]
+id = "open-zed"
+shortcut = "z"
+label = "open in zed"
+detail = "{path}"
+command = "zed {path:q}"
+run = "background"
+scope = "local"
+contexts = ["pr", "worktree", "tmux"]
+requires = ["path"]
+
+[[commands]]
+id = "open-zed-remote"
+shortcut = "z"
+label = "open in zed"
+detail = "{path}"
+command = "zed {remote_ssh_url:q}"
+run = "background"
+scope = "remote"
+contexts = ["pr", "worktree", "tmux"]
+requires = ["path", "ssh_target"]
