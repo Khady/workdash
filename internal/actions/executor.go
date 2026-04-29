@@ -13,7 +13,6 @@ type InlineAction interface {
 	inline()
 }
 
-func (DeleteWorktreeAction) inline()  {}
 func (KillTmuxSessionAction) inline() {}
 func (OpenInBrowserAction) inline()   {}
 
@@ -88,8 +87,6 @@ func DescribeAction(action model.ShellAction) (title, detail, success string) {
 		return "Opening remote terminal", a.SSHTarget + ":" + a.Path, "Opened remote terminal for " + a.SSHTarget
 	case EditConfigAction:
 		return "Opening config", a.Path, "Opened config " + a.Path
-	case DeleteWorktreeAction:
-		return "Deleting worktree", a.WorktreePath, "Deleted worktree " + a.WorktreePath
 	case OpenInBrowserAction:
 		return "Opening in browser", a.URL, "Opened " + a.URL + " in browser"
 	case TmuxAction:

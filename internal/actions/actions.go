@@ -85,20 +85,6 @@ func (a EditConfigAction) ToShell() string {
 	return fmt.Sprintf("exec %s -- %s", a.Editor, p)
 }
 
-type DeleteWorktreeAction struct {
-	RepoRoot     string
-	WorktreePath string
-	SSHTarget    string
-}
-
-func (a DeleteWorktreeAction) ToShell() string {
-	cmd := fmt.Sprintf("cd -- %s && git worktree remove --force %s", Quote(a.RepoRoot), Quote(a.WorktreePath))
-	if a.SSHTarget == "" {
-		return cmd
-	}
-	return WrapRemoteCommand(a.SSHTarget, cmd, false)
-}
-
 type TmuxAction struct {
 	Session    string
 	InsideTmux bool
@@ -167,6 +153,11 @@ func TerminalLaunchCommand(action model.ShellAction) string {
 		return a.ToShell()
 	case RemoteShellAction:
 		return a.ToShell()
+	case CheckoutAction:
+		if a.SSHTarget != "" {
+			return a.ToShell()
+		}
+		return fmt.Sprintf("cd -- %s && git checkout %s && exec \"${SHELL:-bash}\"", Quote(a.RepoRoot), Quote(a.Branch))
 	case TmuxAction:
 		if a.SSHTarget != "" {
 			return a.ToShell()

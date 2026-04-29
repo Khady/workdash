@@ -52,7 +52,7 @@ detail = "{path}"
 command = "bash"
 cwd = "{path}"
 run = "terminal"
-contexts = ["pr", "worktree", "branch"]
+contexts = ["pr", "worktree", "branch", "tmux"]
 requires = ["path"]
 remote = true
 remote_interactive = true
@@ -73,6 +73,11 @@ The log includes command start/end entries, SSH targets, exit codes, stdout, and
 stderr. It is best-effort: logging failures are ignored so the dashboard can
 still load. Logs rotate at 50 MiB with one retained backup. `GH_TOKEN` values
 and GitHub token-shaped strings are redacted before writing.
+
+## License
+
+Workdash is licensed under the GNU Affero General Public License version 3 or
+later. See [LICENSE](LICENSE).
 
 ### Top-Level Keys
 

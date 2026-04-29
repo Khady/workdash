@@ -38,26 +38,13 @@ func ActionsForItem(item model.WorkItem, commands []config.CommandConfig, termin
 
 func prActions(item model.WorkItem, commands []config.CommandConfig, terminalAvailable, terminalDefault bool) []ItemActionOption {
 	options := []ItemActionOption{}
-	if item.Path != "" {
-		options = append(options, terminalAlternatives(ItemActionOption{Shortcut: 'w', Label: "open linked worktree", Detail: item.Path, Action: shellActionForLinkedItem(item)}, "open linked worktree in terminal", terminalAvailable, terminalDefault)...)
-	}
 	options = append(options, ConfiguredActionsForItem(item, commands, terminalAvailable, terminalDefault)...)
 	return options
 }
 
 func worktreeActions(item model.WorkItem, commands []config.CommandConfig, terminalAvailable, terminalDefault bool) []ItemActionOption {
 	options := []ItemActionOption{}
-	if item.Path != "" {
-		options = append(options, terminalAlternatives(ItemActionOption{Shortcut: 'w', Label: "open worktree", Detail: item.Path, Action: shellActionForItem(item)}, "open worktree in terminal", terminalAvailable, terminalDefault)...)
-	}
 	options = append(options, ConfiguredActionsForItem(item, commands, terminalAvailable, terminalDefault)...)
-	if item.RepoRoot != "" && item.Path != "" && !item.IsPrimary {
-		options = append(options, ItemActionOption{
-			Shortcut: 'd', Label: "delete worktree", Detail: item.Path,
-			Action:       DeleteWorktreeAction{RepoRoot: item.RepoRoot, WorktreePath: item.Path, SSHTarget: item.SSHTarget},
-			Confirmation: &ConfirmationPrompt{Title: "Delete worktree?", Detail: item.HostLabel + ": " + item.Title + " will be removed from " + item.Path, ConfirmLabel: "Delete worktree"},
-		})
-	}
 	return options
 }
 
@@ -67,7 +54,7 @@ func branchActions(item model.WorkItem, commands []config.CommandConfig, termina
 	}
 	var primary ItemActionOption
 	if item.Path != "" {
-		primary = ItemActionOption{Shortcut: 'w', Label: "open checked out worktree", Detail: item.Path, Action: shellActionForItem(item)}
+		return ConfiguredActionsForItem(item, commands, terminalAvailable, terminalDefault)
 	} else {
 		primary = ItemActionOption{Shortcut: 'w', Label: "checkout branch", Detail: item.Branch, Action: CheckoutAction{RepoRoot: item.RepoRoot, Branch: item.Branch, SSHTarget: item.SSHTarget}}
 	}
@@ -88,17 +75,6 @@ func tmuxActions(item model.WorkItem, commands []config.CommandConfig, terminalA
 	})
 	options = append(options, ConfiguredActionsForItem(item, commands, terminalAvailable, terminalDefault)...)
 	return options
-}
-
-func shellActionForItem(item model.WorkItem) model.ShellAction {
-	if item.SSHTarget != "" {
-		return RemoteShellAction{Path: item.Path, SSHTarget: item.SSHTarget}
-	}
-	return CdAction{Path: item.Path}
-}
-
-func shellActionForLinkedItem(item model.WorkItem) model.ShellAction {
-	return shellActionForItem(item)
 }
 
 func terminalAlternatives(option ItemActionOption, terminalLabel string, terminalAvailable, terminalDefault bool) []ItemActionOption {
