@@ -61,24 +61,6 @@ remote_interactive = true
 See [examples/config.toml](examples/config.toml)
 for a complete example.
 
-## Logs
-
-Workdash writes an append-only debug log by default:
-
-```bash
-tail -f "${XDG_STATE_HOME:-$HOME/.local/state}/workdash/workdash.log"
-```
-
-The log includes command start/end entries, SSH targets, exit codes, stdout, and
-stderr. It is best-effort: logging failures are ignored so the dashboard can
-still load. Logs rotate at 50 MiB with one retained backup. `GH_TOKEN` values
-and GitHub token-shaped strings are redacted before writing.
-
-## License
-
-Workdash is licensed under the GNU Affero General Public License version 3 or
-later. See [LICENSE](LICENSE).
-
 ### Top-Level Keys
 
 `tmux`
@@ -268,3 +250,21 @@ Type to filter results. Press `Enter` to open the action menu for the selected
 item, `Ctrl+R` to refresh, `Ctrl+B` to toggle details, and `F1` for the full
 shortcut list. PR entries are loaded from the shared account-scoped GraphQL PR
 dataset.
+
+## Logs
+
+Workdash writes an append-only debug log by default:
+
+```bash
+tail -f "${XDG_STATE_HOME:-$HOME/.local/state}/workdash/workdash.log"
+```
+
+The log includes command start/end entries, SSH targets, exit codes, stdout, and
+stderr. It is best-effort: logging failures are ignored so the dashboard can
+still load. Logs rotate at 50 MiB with one retained backup. `GH_TOKEN` values
+and GitHub token-shaped strings are redacted before writing.
+
+## License
+
+Workdash is licensed under the GNU Affero General Public License version 3 or
+later. See [LICENSE](LICENSE).
