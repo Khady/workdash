@@ -73,14 +73,14 @@ func TestParseSearchPRListing(t *testing.T) {
 }
 
 func TestParseGraphQLSearchPRListing(t *testing.T) {
-	got, hasNextPage, endCursor, err := ParseGraphQLSearchPRListing(`{"data":{"search":{"nodes":[{"number":1,"title":"Fix CI","url":"https://github.com/example/repo/pull/1","state":"OPEN","isDraft":false,"updatedAt":"2026-04-21T02:47:26Z","headRefName":"feature/fix","repository":{"name":"repo","nameWithOwner":"example/repo"}}],"pageInfo":{"hasNextPage":true,"endCursor":"cursor-1"}}}}`, "local", "")
+	got, hasNextPage, endCursor, err := ParseGraphQLSearchPRListing(`{"data":{"search":{"nodes":[{"number":1,"title":"Fix CI","url":"https://github.com/example/repo/pull/1","state":"OPEN","isDraft":false,"updatedAt":"2026-04-21T02:47:26Z","headRefName":"feature/fix","repository":{"name":"repo","nameWithOwner":"example/repo"},"headRepository":{"nameWithOwner":"fork/repo"}}],"pageInfo":{"hasNextPage":true,"endCursor":"cursor-1"}}}}`, "local", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !hasNextPage || endCursor != "cursor-1" {
 		t.Fatalf("unexpected page info: hasNextPage=%v endCursor=%q", hasNextPage, endCursor)
 	}
-	if len(got) != 1 || got[0].HeadRefName != "feature/fix" || got[0].RepoFullName != "example/repo" {
+	if len(got) != 1 || got[0].HeadRefName != "feature/fix" || got[0].RepoFullName != "example/repo" || got[0].HeadRepoFullName != "fork/repo" {
 		t.Fatalf("unexpected records: %#v", got)
 	}
 }
@@ -104,6 +104,17 @@ func TestEnrichPRItemsLinksBranchByRepoAndHeadRef(t *testing.T) {
 	got := EnrichPRItems(items)
 	if got[0].PRNumber != 12 || got[0].PRURL == "" || got[0].PRStatus != model.PROpen {
 		t.Fatalf("unexpected enriched branch item: %#v", got[0])
+	}
+}
+
+func TestEnrichPRItemsLinksForkWorktreeByHeadRepoAndHeadRef(t *testing.T) {
+	items := []model.WorkItem{
+		{Kind: model.KindWorktree, RepoRoot: "/repo", RepoLabel: "repo", RepoFullName: "fork/repo", Path: "/repo/wt", Branch: "feature/fix"},
+		{Kind: model.KindPR, RepoLabel: "upstream/repo", RepoFullName: "upstream/repo", PRHeadRepoFullName: "fork/repo", Title: "Fix CI", Branch: "feature/fix", PRNumber: 12, PRURL: "https://github.com/upstream/repo/pull/12", PRStatus: model.PROpen},
+	}
+	got := EnrichPRItems(items)
+	if got[0].PRNumber != 12 || got[0].PRURL == "" || got[0].PRStatus != model.PROpen {
+		t.Fatalf("unexpected enriched worktree item: %#v", got[0])
 	}
 }
 

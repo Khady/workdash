@@ -48,6 +48,9 @@ query($searchQuery: String!, $after: String) {
           name
           nameWithOwner
         }
+        headRepository {
+          nameWithOwner
+        }
       }
     }
     pageInfo {
@@ -105,14 +108,15 @@ type GraphQLSearchResponse struct {
 }
 
 type GraphQLSearchPRNode struct {
-	Number      int            `json:"number"`
-	Title       string         `json:"title"`
-	URL         string         `json:"url"`
-	IsDraft     bool           `json:"isDraft"`
-	State       string         `json:"state"`
-	UpdatedAt   string         `json:"updatedAt"`
-	HeadRefName string         `json:"headRefName"`
-	Repository  SearchRepoItem `json:"repository"`
+	Number         int            `json:"number"`
+	Title          string         `json:"title"`
+	URL            string         `json:"url"`
+	IsDraft        bool           `json:"isDraft"`
+	State          string         `json:"state"`
+	UpdatedAt      string         `json:"updatedAt"`
+	HeadRefName    string         `json:"headRefName"`
+	Repository     SearchRepoItem `json:"repository"`
+	HeadRepository SearchRepoItem `json:"headRepository"`
 }
 
 type SearchRepoItem struct {
@@ -121,17 +125,18 @@ type SearchRepoItem struct {
 }
 
 type SearchPRRecord struct {
-	Number       int
-	Title        string
-	URL          string
-	IsDraft      bool
-	Status       model.PRStatus
-	UpdatedAt    *time.Time
-	RepoLabel    string
-	RepoFullName string
-	HeadRefName  string
-	HostLabel    string
-	SSHTarget    string
+	Number           int
+	Title            string
+	URL              string
+	IsDraft          bool
+	Status           model.PRStatus
+	UpdatedAt        *time.Time
+	RepoLabel        string
+	RepoFullName     string
+	HeadRepoFullName string
+	HeadRefName      string
+	HostLabel        string
+	SSHTarget        string
 }
 
 func ParsePRListing(text string) (map[string]PRItem, error) {
@@ -198,17 +203,18 @@ func ParseGraphQLSearchPRListing(text string, hostLabel, sshTarget string) ([]Se
 			continue
 		}
 		records = append(records, SearchPRRecord{
-			Number:       item.Number,
-			Title:        item.Title,
-			URL:          item.URL,
-			IsDraft:      item.IsDraft,
-			Status:       coercePRStatus(PRItem{State: normalizePRState(item.State)}),
-			UpdatedAt:    parseRFC3339(item.UpdatedAt),
-			RepoLabel:    firstNonEmpty(item.Repository.NameWithOwner, item.Repository.Name),
-			RepoFullName: item.Repository.NameWithOwner,
-			HeadRefName:  item.HeadRefName,
-			HostLabel:    firstNonEmpty(hostLabel, "local"),
-			SSHTarget:    sshTarget,
+			Number:           item.Number,
+			Title:            item.Title,
+			URL:              item.URL,
+			IsDraft:          item.IsDraft,
+			Status:           coercePRStatus(PRItem{State: normalizePRState(item.State)}),
+			UpdatedAt:        parseRFC3339(item.UpdatedAt),
+			RepoLabel:        firstNonEmpty(item.Repository.NameWithOwner, item.Repository.Name),
+			RepoFullName:     item.Repository.NameWithOwner,
+			HeadRepoFullName: item.HeadRepository.NameWithOwner,
+			HeadRefName:      item.HeadRefName,
+			HostLabel:        firstNonEmpty(hostLabel, "local"),
+			SSHTarget:        sshTarget,
 		})
 	}
 	return records, response.Data.Search.PageInfo.HasNextPage, response.Data.Search.PageInfo.EndCursor, nil
@@ -435,8 +441,8 @@ func EnrichPRItems(items []model.WorkItem) []model.WorkItem {
 	prsByRepoBranch := map[string]model.WorkItem{}
 	for _, item := range items {
 		if item.Kind == model.KindPR {
-			if item.RepoFullName != "" && item.Branch != "" {
-				prsByRepoBranch[item.RepoFullName+"|"+item.Branch] = item
+			for _, repoFullName := range prMatchRepoFullNames(item) {
+				prsByRepoBranch[repoFullName+"|"+item.Branch] = item
 			}
 			continue
 		}
@@ -700,22 +706,23 @@ func branchToItem(br model.BranchRecord) model.WorkItem {
 
 func searchPRToItem(pr SearchPRRecord) model.WorkItem {
 	return model.WorkItem{
-		Kind:           model.KindPR,
-		Title:          pr.Title,
-		Subtitle:       fmt.Sprintf("%s • %s • #%d", pr.HostLabel, pr.RepoLabel, pr.Number),
-		RepoLabel:      firstNonEmpty(pr.RepoLabel, pr.RepoFullName),
-		RepoFullName:   pr.RepoFullName,
-		Branch:         pr.HeadRefName,
-		SearchText:     strings.Join([]string{pr.HostLabel, "pr", strconv.Itoa(pr.Number), pr.Title, pr.RepoLabel, pr.RepoFullName, pr.URL}, " "),
-		ScoreHint:      400,
-		Action:         actions.OpenInBrowserAction{URL: pr.URL},
-		PRNumber:       pr.Number,
-		PRURL:          pr.URL,
-		PRIsDraft:      pr.IsDraft,
-		PRStatus:       pr.Status,
-		LastActivityAt: pr.UpdatedAt,
-		HostLabel:      pr.HostLabel,
-		SSHTarget:      pr.SSHTarget,
+		Kind:               model.KindPR,
+		Title:              pr.Title,
+		Subtitle:           fmt.Sprintf("%s • %s • #%d", pr.HostLabel, pr.RepoLabel, pr.Number),
+		RepoLabel:          firstNonEmpty(pr.RepoLabel, pr.RepoFullName),
+		RepoFullName:       pr.RepoFullName,
+		Branch:             pr.HeadRefName,
+		SearchText:         strings.Join([]string{pr.HostLabel, "pr", strconv.Itoa(pr.Number), pr.Title, pr.RepoLabel, pr.RepoFullName, pr.HeadRepoFullName, pr.URL}, " "),
+		ScoreHint:          400,
+		Action:             actions.OpenInBrowserAction{URL: pr.URL},
+		PRNumber:           pr.Number,
+		PRURL:              pr.URL,
+		PRIsDraft:          pr.IsDraft,
+		PRStatus:           pr.Status,
+		PRHeadRepoFullName: pr.HeadRepoFullName,
+		LastActivityAt:     pr.UpdatedAt,
+		HostLabel:          pr.HostLabel,
+		SSHTarget:          pr.SSHTarget,
 	}
 }
 
@@ -828,6 +835,22 @@ func preferPRLinkSource(candidate, current model.WorkItem) bool {
 		return true
 	}
 	return false
+}
+
+func prMatchRepoFullNames(item model.WorkItem) []string {
+	if item.Branch == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := []string{}
+	for _, repoFullName := range []string{item.RepoFullName, item.PRHeadRepoFullName} {
+		if repoFullName == "" || seen[repoFullName] {
+			continue
+		}
+		seen[repoFullName] = true
+		out = append(out, repoFullName)
+	}
+	return out
 }
 
 func uniqueStrings(values []string) []string {

@@ -80,32 +80,33 @@ type TmuxSessionRecord struct {
 }
 
 type WorkItem struct {
-	Kind            ItemKind
-	Title           string
-	Subtitle        string
-	RepoLabel       string
-	RepoRoot        string
-	RepoFullName    string
-	Path            string
-	Branch          string
-	Session         string
-	SearchText      string
-	ScoreHint       int
-	Action          ShellAction
-	TmuxWindows     *int
-	TmuxAttached    *int
-	TmuxWindowNames []string
-	PRNumber        int
-	PRURL           string
-	PRIsDraft       bool
-	PRStatus        PRStatus
-	LastActivityAt  *time.Time
-	Upstream        string
-	AheadCount      *int
-	IsPrimary       bool
-	HostLabel       string
-	SSHTarget       string
-	PathMissing     bool
+	Kind               ItemKind
+	Title              string
+	Subtitle           string
+	RepoLabel          string
+	RepoRoot           string
+	RepoFullName       string
+	Path               string
+	Branch             string
+	Session            string
+	SearchText         string
+	ScoreHint          int
+	Action             ShellAction
+	TmuxWindows        *int
+	TmuxAttached       *int
+	TmuxWindowNames    []string
+	PRNumber           int
+	PRURL              string
+	PRIsDraft          bool
+	PRStatus           PRStatus
+	PRHeadRepoFullName string
+	LastActivityAt     *time.Time
+	Upstream           string
+	AheadCount         *int
+	IsPrimary          bool
+	HostLabel          string
+	SSHTarget          string
+	PathMissing        bool
 }
 
 func (i WorkItem) Key() string {
