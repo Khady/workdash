@@ -49,6 +49,22 @@ func TestParseWindowListingBySession(t *testing.T) {
 	}
 }
 
+func TestEnrichTmuxItemsMarksWorktreeWithSessionOnSameHostAndPath(t *testing.T) {
+	items := []model.WorkItem{
+		{Kind: model.KindWorktree, HostLabel: "local", Path: "/repo/wt"},
+		{Kind: model.KindTmux, HostLabel: "local", Session: "work", Path: "/repo/wt"},
+		{Kind: model.KindWorktree, HostLabel: "remote", SSHTarget: "me@remote", Path: "/repo/wt"},
+	}
+
+	got := EnrichTmuxItems(items)
+	if !got[0].HasTmuxSession {
+		t.Fatalf("expected local worktree to have a tmux marker: %#v", got[0])
+	}
+	if got[2].HasTmuxSession {
+		t.Fatalf("remote worktree should not match a local session: %#v", got[2])
+	}
+}
+
 func TestParsePRListing(t *testing.T) {
 	got, err := ParsePRListing(`[{"number":1,"headRefName":"a"},{"number":2,"headRefName":"a"}]`)
 	if err != nil {

@@ -95,6 +95,7 @@ type WorkItem struct {
 	TmuxWindows        *int
 	TmuxAttached       *int
 	TmuxWindowNames    []string
+	HasTmuxSession     bool
 	PRNumber           int
 	PRURL              string
 	PRIsDraft          bool

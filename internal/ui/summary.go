@@ -221,6 +221,9 @@ func styleColor(name string) string {
 
 func gitStatusParts(item model.WorkItem) []StyledPart {
 	parts := []StyledPart{}
+	if item.Kind == model.KindWorktree && item.HasTmuxSession {
+		parts = append(parts, StyledPart{Text: "tmux", Color: "yellow"})
+	}
 	if pr := prStatusPart(item); pr.Text != "" {
 		parts = append(parts, pr)
 	}

@@ -67,6 +67,17 @@ func TestGitStatusPartsPlacesAgeLast(t *testing.T) {
 	}
 }
 
+func TestGitStatusPartsShowsTmuxMarkerForWorktree(t *testing.T) {
+	got := gitStatusParts(model.WorkItem{
+		Kind:           model.KindWorktree,
+		HasTmuxSession: true,
+	})
+
+	if len(got) != 1 || got[0] != (StyledPart{Text: "tmux", Color: "yellow"}) {
+		t.Fatalf("unexpected tmux marker: %#v", got)
+	}
+}
+
 func TestFormatStyledPartsWrapsHyperlinks(t *testing.T) {
 	got := FormatStyledParts([]StyledPart{{
 		Text:  "#123",

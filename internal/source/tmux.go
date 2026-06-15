@@ -95,14 +95,30 @@ func collectWindowNamesBySession(runner TmuxRunner) map[string][]string {
 }
 
 func EnrichTmuxItems(items []model.WorkItem) []model.WorkItem {
-	linkedByPath := map[string]model.WorkItem{}
+	type pathKey struct {
+		hostLabel string
+		sshTarget string
+		path      string
+	}
+	keyFor := func(item model.WorkItem) pathKey {
+		return pathKey{hostLabel: item.HostLabel, sshTarget: item.SSHTarget, path: item.Path}
+	}
+
+	linkedByPath := map[pathKey]model.WorkItem{}
+	tmuxByPath := map[pathKey]bool{}
 	for _, item := range items {
 		if (item.Kind == model.KindWorktree || item.Kind == model.KindBranch) && item.Path != "" {
-			linkedByPath[item.Path] = item
+			linkedByPath[keyFor(item)] = item
+		}
+		if item.Kind == model.KindTmux && item.Path != "" {
+			tmuxByPath[keyFor(item)] = true
 		}
 	}
 	out := make([]model.WorkItem, len(items))
 	for i, item := range items {
+		if item.Kind == model.KindWorktree {
+			item.HasTmuxSession = tmuxByPath[keyFor(item)]
+		}
 		if item.Kind != model.KindTmux {
 			out[i] = item
 			continue
@@ -112,7 +128,7 @@ func EnrichTmuxItems(items []model.WorkItem) []model.WorkItem {
 				item.PathMissing = true
 			}
 		}
-		if linked, ok := linkedByPath[item.Path]; ok {
+		if linked, ok := linkedByPath[keyFor(item)]; ok {
 			item.PRNumber = linked.PRNumber
 			item.PRURL = linked.PRURL
 			item.PRIsDraft = linked.PRIsDraft
