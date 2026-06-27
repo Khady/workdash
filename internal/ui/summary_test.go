@@ -45,7 +45,7 @@ func TestPRStatusPartUsesNumberOnlyWithStatusColor(t *testing.T) {
 	}
 }
 
-func TestGitStatusPartsPlacesAgeLast(t *testing.T) {
+func TestGitStatusPartsPlacesUnpushedFirstAndAgeLast(t *testing.T) {
 	ahead := 2
 	activity := time.Now().Add(-2 * time.Hour)
 	got := gitStatusParts(model.WorkItem{
@@ -59,11 +59,11 @@ func TestGitStatusPartsPlacesAgeLast(t *testing.T) {
 	if len(got) != 3 {
 		t.Fatalf("got %#v", got)
 	}
-	if got[0].Text != "#123" || got[1].Text != "+2 unpushed" || got[2].Text != "2h" {
+	if got[0].Text != "+2 unpushed" || got[1].Text != "#123" || got[2].Text != "2h" {
 		t.Fatalf("unexpected order: %#v", got)
 	}
-	if got[0].URL != "https://github.com/example/repo/pull/123" {
-		t.Fatalf("expected PR URL on first part, got %#v", got[0])
+	if got[1].URL != "https://github.com/example/repo/pull/123" {
+		t.Fatalf("expected PR URL on PR part, got %#v", got[1])
 	}
 }
 

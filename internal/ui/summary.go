@@ -221,14 +221,14 @@ func styleColor(name string) string {
 
 func gitStatusParts(item model.WorkItem) []StyledPart {
 	parts := []StyledPart{}
+	if item.AheadCount != nil && *item.AheadCount > 0 {
+		parts = append(parts, StyledPart{Text: fmt.Sprintf("+%d unpushed", *item.AheadCount), Color: "yellow"})
+	}
 	if item.Kind == model.KindWorktree && item.HasTmuxSession {
 		parts = append(parts, StyledPart{Text: "tmux", Color: "yellow"})
 	}
 	if pr := prStatusPart(item); pr.Text != "" {
 		parts = append(parts, pr)
-	}
-	if item.AheadCount != nil && *item.AheadCount > 0 {
-		parts = append(parts, StyledPart{Text: fmt.Sprintf("+%d unpushed", *item.AheadCount), Color: "yellow"})
 	}
 	if rel := FormatCoarseRelativeTime(item.LastActivityAt); rel != "" {
 		parts = append(parts, StyledPart{Text: rel, Color: "gray"})
