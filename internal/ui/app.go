@@ -291,6 +291,13 @@ func (a *WorkdashApp) populateTable(preserve bool) {
 	}
 	a.selectedByRow = map[int]*model.WorkItem{}
 	entries := search.BuildDisplayEntries(a.items, a.query, a.mode, a.sortOrder)
+	maxRightParts := 0
+	for _, entry := range entries {
+		if entry.Item != nil {
+			_, rightParts := SummaryParts(*entry.Item)
+			maxRightParts = max(maxRightParts, len(rightParts))
+		}
+	}
 	selectedRow := 0
 	for row, entry := range entries {
 		if entry.IsHeader() {
@@ -298,7 +305,9 @@ func (a *WorkdashApp) populateTable(preserve bool) {
 			a.table.SetCell(row, 0, cell)
 			a.table.SetCell(row, 1, tview.NewTableCell("").SetSelectable(false))
 			a.table.SetCell(row, 2, tview.NewTableCell("").SetSelectable(false).SetExpansion(1))
-			a.table.SetCell(row, 3, tview.NewTableCell("").SetSelectable(false))
+			for column := 3; column < 3+maxRightParts; column++ {
+				a.table.SetCell(row, column, tview.NewTableCell("").SetSelectable(false))
+			}
 			continue
 		}
 		item := *entry.Item
@@ -331,10 +340,23 @@ func (a *WorkdashApp) populateTable(preserve bool) {
 			SetExpansion(1).
 			SetStyle(tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack)).
 			SetSelectedStyle(selectedBaseStyle))
-		a.table.SetCell(row, 3, tview.NewTableCell(FormatStyledParts(rightParts)).
-			SetStyle(tcell.StyleDefault.Foreground(tcell.ColorGray).Background(tcell.ColorBlack)).
-			SetSelectedStyle(tcell.StyleDefault.Foreground(tcell.ColorGray).Background(tcell.ColorDarkSlateGray)).
-			SetAlign(tview.AlignRight))
+		for column := 3; column < 3+maxRightParts; column++ {
+			a.table.SetCell(row, column, tview.NewTableCell("").
+				SetStyle(tcell.StyleDefault.Background(tcell.ColorBlack)).
+				SetSelectedStyle(tcell.StyleDefault.Background(tcell.ColorDarkSlateGray)))
+		}
+		firstRightColumn := 3 + maxRightParts - len(rightParts)
+		for index, part := range rightParts {
+			color := tcell.GetColor(styleColor(part.Color))
+			text := formatStyledPart(part)
+			if index > 0 {
+				text = " " + text
+			}
+			a.table.SetCell(row, firstRightColumn+index, tview.NewTableCell(text).
+				SetStyle(tcell.StyleDefault.Foreground(color).Background(tcell.ColorBlack)).
+				SetSelectedStyle(tcell.StyleDefault.Foreground(color).Background(tcell.ColorDarkSlateGray)).
+				SetAlign(tview.AlignRight))
+		}
 		a.selectedByRow[row] = &item
 		if selectedKey != "" && item.Key() == selectedKey {
 			selectedRow = row
