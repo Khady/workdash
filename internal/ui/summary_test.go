@@ -73,8 +73,24 @@ func TestGitStatusPartsShowsTmuxMarkerForWorktree(t *testing.T) {
 		HasTmuxSession: true,
 	})
 
-	if len(got) != 1 || got[0] != (StyledPart{Text: "tmux", Color: "yellow"}) {
+	if len(got) != 1 || got[0] != (StyledPart{Text: "T", Color: "yellow"}) {
 		t.Fatalf("unexpected tmux marker: %#v", got)
+	}
+}
+
+func TestGitStatusPartsShowsLinkedResourcesForPR(t *testing.T) {
+	got := gitStatusParts(model.WorkItem{
+		Kind:           model.KindPR,
+		HasWorktree:    true,
+		HasTmuxSession: true,
+		PRNumber:       123,
+	})
+
+	if len(got) != 3 ||
+		got[0] != (StyledPart{Text: "W", Color: "green"}) ||
+		got[1] != (StyledPart{Text: "T", Color: "yellow"}) ||
+		got[2].Text != "#123" {
+		t.Fatalf("unexpected linked resource markers: %#v", got)
 	}
 }
 

@@ -75,6 +75,11 @@ type accountPRCacheEntry struct {
 	Records []SearchPRRecord
 }
 
+type repoBranchLinkKey struct {
+	repoFullName string
+	branch       string
+}
+
 type PRItem struct {
 	Number      int    `json:"number"`
 	URL         string `json:"url"`
@@ -438,11 +443,12 @@ func CollectSearchPRItems(hostLabel, sshTarget string, runner GitRunner, ghAccou
 
 func EnrichPRItems(items []model.WorkItem) []model.WorkItem {
 	linkedByURL := map[string]model.WorkItem{}
-	prsByRepoBranch := map[string]model.WorkItem{}
+	linkedByRepoBranch := map[repoBranchLinkKey]model.WorkItem{}
+	prsByRepoBranch := map[repoBranchLinkKey]model.WorkItem{}
 	for _, item := range items {
 		if item.Kind == model.KindPR {
 			for _, repoFullName := range prMatchRepoFullNames(item) {
-				prsByRepoBranch[repoFullName+"|"+item.Branch] = item
+				prsByRepoBranch[repoBranchLinkKeyFor(item, repoFullName)] = item
 			}
 			continue
 		}
@@ -452,26 +458,46 @@ func EnrichPRItems(items []model.WorkItem) []model.WorkItem {
 				linkedByURL[item.PRURL] = item
 			}
 		}
+		if item.RepoFullName != "" && item.Branch != "" {
+			key := repoBranchLinkKeyFor(item, item.RepoFullName)
+			current, ok := linkedByRepoBranch[key]
+			if !ok || preferPRLinkSource(item, current) {
+				linkedByRepoBranch[key] = item
+			}
+		}
 	}
 	out := make([]model.WorkItem, len(items))
 	for i, item := range items {
 		if item.Kind == model.KindPR {
+			var linked model.WorkItem
+			var ok bool
 			if item.PRURL != "" {
-				if linked, ok := linkedByURL[item.PRURL]; ok {
-					item.RepoRoot = linked.RepoRoot
-					item.RepoLabel = firstNonEmpty(linked.RepoLabel, item.RepoLabel)
-					item.RepoFullName = firstNonEmpty(linked.RepoFullName, item.RepoFullName)
-					item.Path = linked.Path
-					item.Branch = linked.Branch
-					item.Upstream = linked.Upstream
-					item.AheadCount = linked.AheadCount
+				linked, ok = linkedByURL[item.PRURL]
+			}
+			if !ok {
+				for _, repoFullName := range prMatchRepoFullNames(item) {
+					if linked, ok = linkedByRepoBranch[repoBranchLinkKeyFor(item, repoFullName)]; ok {
+						break
+					}
 				}
+			}
+			if ok {
+				item.RepoRoot = linked.RepoRoot
+				item.RepoLabel = firstNonEmpty(linked.RepoLabel, item.RepoLabel)
+				item.RepoFullName = firstNonEmpty(linked.RepoFullName, item.RepoFullName)
+				item.Path = linked.Path
+				item.Branch = linked.Branch
+				item.Upstream = linked.Upstream
+				item.AheadCount = linked.AheadCount
+				item.HasWorktree = linked.Kind == model.KindWorktree || linked.Path != ""
+				item.HostLabel = linked.HostLabel
+				item.SSHTarget = linked.SSHTarget
 			}
 			out[i] = item
 			continue
 		}
 		if item.PRURL == "" && item.RepoFullName != "" && item.Branch != "" {
-			if pr, ok := prsByRepoBranch[item.RepoFullName+"|"+item.Branch]; ok {
+			if pr, ok := prsByRepoBranch[repoBranchLinkKeyFor(item, item.RepoFullName)]; ok {
 				item.PRNumber = pr.PRNumber
 				item.PRURL = pr.PRURL
 				item.PRIsDraft = pr.PRIsDraft
@@ -481,6 +507,12 @@ func EnrichPRItems(items []model.WorkItem) []model.WorkItem {
 		out[i] = item
 	}
 	return out
+}
+
+func repoBranchLinkKeyFor(item model.WorkItem, repoFullName string) repoBranchLinkKey {
+	return repoBranchLinkKey{
+		repoFullName: repoFullName, branch: item.Branch,
+	}
 }
 
 func FetchPRByBranch(repoRoot string, remote bool, author, ghAccount, sshTarget string, runner GitRunner) (map[string]PRItem, error) {

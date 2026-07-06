@@ -64,3 +64,22 @@ func TestLoadPipelineLetsTmuxInheritPREnrichment(t *testing.T) {
 		t.Fatalf("unexpected worktree item: %#v", got[0])
 	}
 }
+
+func TestStreamingPipelineLetsPRInheritWorktreeAndTmux(t *testing.T) {
+	items := []model.WorkItem{
+		{Kind: model.KindWorktree, HostLabel: "asia", SSHTarget: "me@asia", RepoRoot: "/repo", RepoFullName: "example/repo", Path: "/repo/wt", Branch: "feature/fix"},
+		{Kind: model.KindTmux, HostLabel: "asia", SSHTarget: "me@asia", Path: "/repo/wt", Session: "fix"},
+		{Kind: model.KindPR, HostLabel: "local", RepoFullName: "example/repo", Branch: "feature/fix", PRNumber: 42, PRURL: "https://github.com/example/repo/pull/42"},
+	}
+
+	got := source.EnrichTmuxItems(source.EnrichPRItems(items))
+	if got[0].PRNumber != 42 || got[0].PRURL == "" {
+		t.Fatalf("unexpected enriched worktree item: %#v", got[0])
+	}
+	if got[1].PRNumber != 42 || got[1].PRURL == "" {
+		t.Fatalf("unexpected enriched tmux item: %#v", got[1])
+	}
+	if got[2].Path != "/repo/wt" || !got[2].HasWorktree || !got[2].HasTmuxSession || got[2].SSHTarget != "me@asia" {
+		t.Fatalf("unexpected enriched PR item: %#v", got[2])
+	}
+}

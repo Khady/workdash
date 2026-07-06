@@ -224,8 +224,11 @@ func gitStatusParts(item model.WorkItem) []StyledPart {
 	if item.AheadCount != nil && *item.AheadCount > 0 {
 		parts = append(parts, StyledPart{Text: fmt.Sprintf("+%d unpushed", *item.AheadCount), Color: "yellow"})
 	}
-	if item.Kind == model.KindWorktree && item.HasTmuxSession {
-		parts = append(parts, StyledPart{Text: "tmux", Color: "yellow"})
+	if item.Kind == model.KindPR && item.HasWorktree {
+		parts = append(parts, StyledPart{Text: "W", Color: "green"})
+	}
+	if item.HasTmuxSession {
+		parts = append(parts, StyledPart{Text: "T", Color: "yellow"})
 	}
 	if pr := prStatusPart(item); pr.Text != "" {
 		parts = append(parts, pr)

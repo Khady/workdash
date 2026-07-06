@@ -116,7 +116,7 @@ func EnrichTmuxItems(items []model.WorkItem) []model.WorkItem {
 	}
 	out := make([]model.WorkItem, len(items))
 	for i, item := range items {
-		if item.Kind == model.KindWorktree {
+		if item.Path != "" {
 			item.HasTmuxSession = tmuxByPath[keyFor(item)]
 		}
 		if item.Kind != model.KindTmux {

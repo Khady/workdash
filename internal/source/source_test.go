@@ -107,8 +107,36 @@ func TestEnrichPRItemsLinksToKnownWorktree(t *testing.T) {
 		{Kind: model.KindPR, RepoLabel: "example/repo", RepoFullName: "example/repo", Title: "Fix CI", Branch: "feature/fix", PRURL: "https://github.com/example/repo/pull/1"},
 	}
 	got := EnrichPRItems(items)
-	if got[1].Path != "/repo/wt" || got[1].Branch != "feature/fix" || got[1].RepoRoot != "/repo" {
+	if got[1].Path != "/repo/wt" || got[1].Branch != "feature/fix" || got[1].RepoRoot != "/repo" || !got[1].HasWorktree {
 		t.Fatalf("unexpected linked PR item: %#v", got[1])
+	}
+}
+
+func TestEnrichPRItemsLinksToWorktreeWithoutPRMetadata(t *testing.T) {
+	items := []model.WorkItem{
+		{Kind: model.KindWorktree, HostLabel: "local", RepoRoot: "/repo", RepoLabel: "repo", RepoFullName: "example/repo", Path: "/repo/wt", Branch: "feature/fix"},
+		{Kind: model.KindPR, HostLabel: "local", RepoLabel: "example/repo", RepoFullName: "example/repo", Title: "Fix CI", Branch: "feature/fix", PRNumber: 1, PRURL: "https://github.com/example/repo/pull/1"},
+	}
+	got := EnrichPRItems(items)
+	if got[1].RepoRoot != "/repo" || got[1].Path != "/repo/wt" || !got[1].HasWorktree {
+		t.Fatalf("unexpected linked PR item: %#v", got[1])
+	}
+	if got[0].PRNumber != 1 || got[0].PRURL != "https://github.com/example/repo/pull/1" {
+		t.Fatalf("unexpected linked worktree item: %#v", got[0])
+	}
+}
+
+func TestEnrichPRItemsLinksAcrossHosts(t *testing.T) {
+	items := []model.WorkItem{
+		{Kind: model.KindWorktree, HostLabel: "asia", SSHTarget: "me@asia", RepoRoot: "/repo", RepoFullName: "example/repo", Path: "/repo/wt", Branch: "feature/fix"},
+		{Kind: model.KindPR, HostLabel: "local", RepoFullName: "example/repo", Branch: "feature/fix", PRNumber: 1, PRURL: "https://github.com/example/repo/pull/1"},
+	}
+	got := EnrichPRItems(items)
+	if got[0].PRNumber != 1 || got[0].PRURL == "" {
+		t.Fatalf("worktree did not inherit PR metadata across hosts: %#v", got[0])
+	}
+	if got[1].Path != "/repo/wt" || !got[1].HasWorktree || got[1].HostLabel != "asia" || got[1].SSHTarget != "me@asia" {
+		t.Fatalf("PR did not inherit remote worktree context: %#v", got[1])
 	}
 }
 
