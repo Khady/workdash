@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Workdash</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <header>
+      <div>
+        <div class="eyebrow">LOCAL CONTROL</div>
+        <h1><span aria-hidden="true">WD/</span> Pull request</h1>
+        <div id="age"></div>
+      </div>
+      <button id="refresh" class="icon" title="Refresh Workdash data" aria-label="Refresh">↻</button>
+    </header>
+    <div id="notice" role="status" aria-live="polite"></div>
+    <main id="content" aria-live="polite">
+      <p class="status">Loading Workdash actions…</p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

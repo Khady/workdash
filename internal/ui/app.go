@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
 	"github.com/Khady/workdash/internal/actions"
 	"github.com/Khady/workdash/internal/config"
+	"github.com/Khady/workdash/internal/daemon"
 	"github.com/Khady/workdash/internal/loader"
 	"github.com/Khady/workdash/internal/logging"
 	"github.com/Khady/workdash/internal/model"
@@ -17,14 +19,15 @@ import (
 )
 
 type WorkdashApp struct {
-	app       *tview.Application
-	pages     *tview.Pages
-	root      *tview.Flex
-	searchBox *tview.InputField
-	modeText  *tview.TextView
-	warnings  *tview.TextView
-	table     *tview.Table
-	details   *tview.TextView
+	app        *tview.Application
+	pages      *tview.Pages
+	root       *tview.Flex
+	searchBox  *tview.InputField
+	modeText   *tview.TextView
+	statusText *tview.TextView
+	warnings   *tview.TextView
+	table      *tview.Table
+	details    *tview.TextView
 
 	configPath              string
 	configEditor            string
@@ -36,6 +39,7 @@ type WorkdashApp struct {
 	items           []model.WorkItem
 	warningLines    []string
 	loading         bool
+	loadedAt        time.Time
 	mode            model.Mode
 	sortOrder       model.SortOrder
 	query           string
@@ -48,6 +52,7 @@ type WorkdashApp struct {
 	terminalSuccess int
 	terminalFailure int
 	menu            *actionMenuState
+	daemonConnected bool
 }
 
 type actionMenuState struct {
@@ -88,10 +93,34 @@ func NewWorkdashApp(configPath, cwd string) (*WorkdashApp, error) {
 func (a *WorkdashApp) Run() (model.ShellAction, int, error) {
 	SetTerminalTitle("workdash")
 	go func() {
+		fallbackWarning := ""
+		if a.configPath == "" {
+			response, err := daemon.Call(daemon.Request{Type: "ensure_repo", Cwd: a.cwd})
+			if err == nil {
+				a.daemonConnected = true
+				items := daemon.RestoreActions(response.Items, os.Getenv("TMUX") != "")
+				a.app.QueueUpdateDraw(func() {
+					a.items = items
+					a.warningLines = response.Warnings
+					a.loadedAt = response.LoadedAt
+					a.loading = false
+					a.refreshSelection(false)
+				})
+				return
+			}
+			fallbackWarning = "Workdash daemon unavailable; using direct loading"
+		}
 		err := loader.StreamItems(a.configPath, a.cwd, func(items []model.WorkItem, warnings []string, done bool) {
+			loadedAt := time.Time{}
+			if done {
+				loadedAt = time.Now()
+			}
 			a.app.QueueUpdateDraw(func() {
 				a.items = items
-				a.warningLines = warnings
+				a.warningLines = appendWarning(fallbackWarning, warnings)
+				if !loadedAt.IsZero() {
+					a.loadedAt = loadedAt
+				}
 				a.loading = !done
 				a.refreshSelection(false)
 			})
@@ -123,13 +152,16 @@ func (a *WorkdashApp) build() {
 		a.refreshSelection(false)
 	})
 	a.modeText = tview.NewTextView().SetDynamicColors(true)
+	a.statusText = tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignRight)
+	a.statusText.SetTextColor(tcell.ColorGray)
 	a.warnings = tview.NewTextView().SetDynamicColors(true)
 	a.table = tview.NewTable().SetSelectable(true, false).SetFixed(0, 0)
 	a.details = tview.NewTextView().SetDynamicColors(true).SetWrap(true)
 
 	top := tview.NewFlex().SetDirection(tview.FlexColumn).
 		AddItem(a.modeText, 10, 0, false).
-		AddItem(a.searchBox, 0, 1, true)
+		AddItem(a.searchBox, 0, 1, true).
+		AddItem(a.statusText, 18, 0, false)
 	content := tview.NewFlex().SetDirection(tview.FlexColumn).
 		AddItem(a.table, 0, 3, false)
 	a.root = tview.NewFlex().SetDirection(tview.FlexRow).
@@ -216,6 +248,7 @@ func (a *WorkdashApp) refresh() {
 
 func (a *WorkdashApp) refreshSelection(preserveSelection bool) {
 	a.updateMode()
+	a.updateRefreshStatus()
 	a.updateWarnings()
 	a.populateTable(preserveSelection)
 	a.syncDetails()
@@ -227,15 +260,60 @@ func (a *WorkdashApp) reload() {
 	a.loading = true
 	a.refresh()
 	go func() {
+		if a.daemonConnected {
+			response, err := daemon.Call(daemon.Request{Type: "refresh"})
+			if err != nil {
+				a.daemonConnected = false
+				fallbackWarning := "Daemon refresh failed; using direct loading: " + err.Error()
+				_ = loader.StreamItems(a.configPath, a.cwd, func(items []model.WorkItem, warnings []string, done bool) {
+					loadedAt := time.Time{}
+					if done {
+						loadedAt = time.Now()
+					}
+					a.app.QueueUpdateDraw(func() {
+						a.items = items
+						a.warningLines = appendWarning(fallbackWarning, warnings)
+						if !loadedAt.IsZero() {
+							a.loadedAt = loadedAt
+						}
+						a.loading = !done
+						a.refreshSelection(false)
+					})
+				})
+				return
+			}
+			a.app.QueueUpdateDraw(func() {
+				a.items = daemon.RestoreActions(response.Items, os.Getenv("TMUX") != "")
+				a.warningLines = response.Warnings
+				a.loadedAt = response.LoadedAt
+				a.loading = false
+				a.refreshSelection(false)
+			})
+			return
+		}
 		_ = loader.StreamItems(a.configPath, a.cwd, func(items []model.WorkItem, warnings []string, done bool) {
+			loadedAt := time.Time{}
+			if done {
+				loadedAt = time.Now()
+			}
 			a.app.QueueUpdateDraw(func() {
 				a.items = items
 				a.warningLines = warnings
+				if !loadedAt.IsZero() {
+					a.loadedAt = loadedAt
+				}
 				a.loading = !done
 				a.refreshSelection(false)
 			})
 		})
 	}()
+}
+
+func appendWarning(warning string, warnings []string) []string {
+	if warning == "" {
+		return warnings
+	}
+	return append([]string{warning}, warnings...)
 }
 
 func (a *WorkdashApp) updateMode() {
@@ -244,6 +322,24 @@ func (a *WorkdashApp) updateMode() {
 		label += " Rec"
 	}
 	a.modeText.SetText("[::bu]" + label + "[-:-:-]")
+}
+
+func (a *WorkdashApp) updateRefreshStatus() {
+	a.statusText.SetText(formatRefreshStatus(a.loadedAt, a.loading))
+}
+
+func formatRefreshStatus(loadedAt time.Time, loading bool) string {
+	if loadedAt.IsZero() {
+		if loading {
+			return "Loading"
+		}
+		return ""
+	}
+	prefix := "Refreshed"
+	if loading {
+		prefix = "Refreshing"
+	}
+	return prefix + " " + loadedAt.Local().Format("15:04")
 }
 
 func modeLabel(mode model.Mode) string {

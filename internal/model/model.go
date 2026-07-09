@@ -91,7 +91,7 @@ type WorkItem struct {
 	Session            string
 	SearchText         string
 	ScoreHint          int
-	Action             ShellAction
+	Action             ShellAction `json:"-"`
 	TmuxWindows        *int
 	TmuxAttached       *int
 	TmuxWindowNames    []string

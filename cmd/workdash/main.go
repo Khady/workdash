@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/Khady/workdash/internal/actions"
+	"github.com/Khady/workdash/internal/daemon"
 	"github.com/Khady/workdash/internal/ui"
 )
 
@@ -14,6 +15,24 @@ func main() {
 }
 
 func run(argv []string) int {
+	if len(argv) > 0 && argv[0] == "daemon" {
+		fs := flag.NewFlagSet("workdash daemon", flag.ContinueOnError)
+		configPath := fs.String("config", "", "Override the default XDG config path")
+		if err := fs.Parse(argv[1:]); err != nil {
+			return 2
+		}
+		listener, err := daemon.Listen()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		defer listener.Close()
+		if err := daemon.NewServer(*configPath).Serve(listener); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		return 0
+	}
 	fs := flag.NewFlagSet("workdash", flag.ContinueOnError)
 	emit := fs.String("emit", "", "Print selected action as raw shell code")
 	configPath := fs.String("config", "", "Override the default XDG config path")

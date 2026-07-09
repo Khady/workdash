@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Workdash",
+  "version": "0.2.1",
+  "description": "Run Workdash actions for the current GitHub pull request.",
+  "permissions": [
+    "nativeMessaging"
+  ],
+  "host_permissions": [
+    "https://github.com/*"
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ]
+  },
+  "action": {
+    "default_icon": "icons/workdash.svg",
+    "default_title": "Workdash",
+    "default_popup": "popup.html"
+  },
+  "icons": {
+    "48": "icons/workdash.svg"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "workdash@khady.github.io",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    }
+  }
+}

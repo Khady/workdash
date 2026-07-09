@@ -1,0 +1,186 @@
+:root {
+  color-scheme: dark;
+  --ink: #eef2e8;
+  --muted: #899185;
+  --panel: #181c1a;
+  --line: #303630;
+  --signal: #c7f464;
+  --danger: #ff8e78;
+  font: 13px/1.4 Iosevka, "IBM Plex Mono", "Cascadia Mono", monospace;
+  background: #101310;
+  color: var(--ink);
+}
+
+body {
+  width: 390px;
+  max-height: 560px;
+  margin: 0;
+  background:
+    linear-gradient(90deg, rgb(199 244 100 / 4%) 1px, transparent 1px) 0 0 / 24px 24px,
+    #101310;
+}
+
+header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 25%);
+  background: rgb(18 22 19 / 96%);
+}
+
+h1 {
+  margin: 1px 0 0;
+  font-size: 15px;
+  letter-spacing: -0.02em;
+}
+
+h1 span {
+  color: var(--signal);
+}
+
+.eyebrow {
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+}
+
+#age {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+main {
+  padding: 10px;
+}
+
+#notice:not(:empty) {
+  margin: 8px 10px 0;
+  padding: 7px 9px;
+  border-left: 2px solid var(--signal);
+  background: #1b211a;
+  color: var(--signal);
+  font-size: 11px;
+}
+
+#notice.error {
+  border-color: var(--danger);
+  background: #251a17;
+  color: var(--danger);
+}
+
+.group {
+  margin-bottom: 10px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  box-shadow: 3px 3px 0 #080a08;
+  background: var(--panel);
+}
+
+.group-title {
+  padding: 9px 10px 7px;
+  border-left: 2px solid var(--signal);
+  color: var(--ink);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.group-subtitle {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.action {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-top: 1px solid #292e29;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.action:hover:not(:disabled) {
+  padding-left: 14px;
+  background: #252c23;
+  color: var(--signal);
+}
+
+.action:disabled {
+  color: #646b62;
+  cursor: not-allowed;
+}
+
+.action:focus-visible,
+.icon:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: -2px;
+}
+
+.detail {
+  display: block;
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status,
+.error {
+  margin: 8px 4px;
+}
+
+.error {
+  color: var(--danger);
+}
+
+.success {
+  color: var(--signal);
+}
+
+.icon {
+  width: 30px;
+  height: 30px;
+  border: 1px solid #3a4238;
+  border-radius: 2px;
+  background: #20261f;
+  color: inherit;
+  cursor: pointer;
+  font-size: 18px;
+}
+
+.icon:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .group {
+    animation: enter 120ms ease-out both;
+  }
+
+  .action {
+    transition: padding 100ms ease, color 100ms ease, background 100ms ease;
+  }
+
+  @keyframes enter {
+    from {
+      opacity: 0;
+      transform: translateY(3px);
+    }
+  }
+}

@@ -251,6 +251,65 @@ item, `Ctrl+R` to refresh, `Ctrl+B` to toggle details, and `F1` for the full
 shortcut list. PR entries are loaded from the shared account-scoped GraphQL PR
 dataset.
 
+## Firefox integration (Linux)
+
+Workdash can expose the actions associated with the current GitHub PR in a
+Firefox toolbar popup. A socket-activated user daemon owns the expensive
+Workdash snapshot, so opening or focusing a browser tab does not run discovery.
+Firefox warms the snapshot in the background when the extension starts. PR tab
+changes perform only cached local lookups and update the toolbar badge with the
+number of available actions. The snapshot is refreshed only with `Ctrl+R` in
+the TUI or the popup refresh button.
+
+The popup merges PR, branch, worktree, and tmux records that refer to the same
+workspace, then removes actions that resolve to the same command. It mirrors
+every remaining applicable Workdash action, including configured destructive
+commands. Workdash preserves existing confirmation prompts but does not add new
+confirmations to configured commands, so only configure commands you are
+comfortable exposing through the popup.
+
+Requirements:
+
+- systemd user services
+- a configured `terminal_launcher` for terminal, shell, checkout, and tmux
+  attach actions
+- Firefox desktop
+- `zip` to build the extension package
+
+Build and install the local components:
+
+```bash
+make install-firefox
+```
+
+This installs the binaries under `~/.local/bin`, enables
+`workdash.socket`, writes the Firefox native-messaging manifest under
+`~/.mozilla/native-messaging-hosts`, and builds
+`build/workdash-firefox.xpi`.
+
+For development, load `browser/firefox/manifest.json` as a temporary add-on
+from `about:debugging`. Standard Firefox releases require a Mozilla-signed XPI
+for permanent installation. The extension requests `nativeMessaging` and access
+to GitHub tab URLs. It uses the latter only to recognize PR pages and maintain
+the toolbar badge; it injects no page scripts and cannot read page content.
+
+Remove the integration with:
+
+```bash
+make uninstall-firefox
+```
+
+When the daemon is available, the TUI shares its snapshot. If the daemon or
+socket is not installed, the TUI retains its previous direct-loading behavior.
+An explicit `--config` override also uses direct loading.
+
+For diagnostics:
+
+```bash
+systemctl --user status workdash.socket workdash.service
+journalctl --user -u workdash.service
+```
+
 ## Logs
 
 Workdash writes an append-only debug log by default:

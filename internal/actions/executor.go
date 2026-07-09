@@ -72,6 +72,21 @@ func ExecuteTerminalLaunchAction(action model.ShellAction, terminalLauncher stri
 	return TerminalLaunchError{Detail: detail}
 }
 
+// ExecuteTerminalLaunchActionAsync starts a terminal launcher without tying the
+// launched terminal to the lifetime of the caller.
+func ExecuteTerminalLaunchActionAsync(action model.ShellAction, terminalLauncher string) error {
+	command := TerminalLaunchCommand(action)
+	if command == "" {
+		return TerminalLaunchError{Detail: "Action cannot be launched in a terminal"}
+	}
+	launcherCommand := stringsReplaceCommand(terminalLauncher, Quote(command))
+	cmd := exec.Command("/bin/bash", "-lc", launcherCommand)
+	if err := cmd.Start(); err != nil {
+		return TerminalLaunchError{Detail: err.Error()}
+	}
+	return cmd.Process.Release()
+}
+
 func DescribeAction(action model.ShellAction) (title, detail, success string) {
 	if t, ok := action.(TerminalLaunchAction); ok {
 		action = t.Action
