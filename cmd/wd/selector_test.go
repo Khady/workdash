@@ -7,7 +7,7 @@ import (
 	"github.com/Khady/workdash/internal/workspace"
 )
 
-func snapshot() workspace.Snapshot {
+func sampleSnapshot() workspace.Snapshot {
 	return workspace.Snapshot{Workspaces: []workspace.Workspace{
 		{ID: workspace.ID{Host: "local", Repo: "/a", Branch: "topic"}, RepoLabel: "a"},
 		{ID: workspace.ID{Host: "local", Repo: "/b", Branch: "topic"}, RepoLabel: "b"},
@@ -17,7 +17,7 @@ func snapshot() workspace.Snapshot {
 }
 
 func TestSelectMatchesUniqueBranch(t *testing.T) {
-	got, err := Select(snapshot(), "solo")
+	got, err := Select(sampleSnapshot(), "solo")
 	if err != nil {
 		t.Fatalf("Select() error = %v", err)
 	}
@@ -30,7 +30,7 @@ func TestSelectMatchesUniqueBranch(t *testing.T) {
 // user can type back. A bare "repo:branch" candidate may itself be ambiguous
 // once the same repo is cloned on two hosts.
 func TestSelectRejectsAmbiguousBranch(t *testing.T) {
-	_, err := Select(snapshot(), "topic")
+	_, err := Select(sampleSnapshot(), "topic")
 	if err == nil {
 		t.Fatal("Select() error = nil, want ambiguity error")
 	}
@@ -40,7 +40,7 @@ func TestSelectRejectsAmbiguousBranch(t *testing.T) {
 }
 
 func TestSelectAcceptsRepoQualifiedBranch(t *testing.T) {
-	got, err := Select(snapshot(), "b:topic")
+	got, err := Select(sampleSnapshot(), "b:topic")
 	if err != nil {
 		t.Fatalf("Select() error = %v", err)
 	}
@@ -50,7 +50,7 @@ func TestSelectAcceptsRepoQualifiedBranch(t *testing.T) {
 }
 
 func TestSelectMatchesBranchContainingSlash(t *testing.T) {
-	got, err := Select(snapshot(), "feature/nested")
+	got, err := Select(sampleSnapshot(), "feature/nested")
 	if err != nil {
 		t.Fatalf("Select() error = %v", err)
 	}
@@ -60,7 +60,7 @@ func TestSelectMatchesBranchContainingSlash(t *testing.T) {
 }
 
 func TestSelectReportsUnknownSelector(t *testing.T) {
-	if _, err := Select(snapshot(), "nope"); err == nil {
+	if _, err := Select(sampleSnapshot(), "nope"); err == nil {
 		t.Fatal("Select() error = nil, want not-found error")
 	}
 }
