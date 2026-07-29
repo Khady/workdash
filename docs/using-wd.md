@@ -10,6 +10,7 @@ this way — the facet model, the two verbs, what got deleted and what that boug
 |---|---|
 | `~/.local/bin/wd` | the binary |
 | `~/.local/bin/wdt` | the TUI — grouped, coloured, recency-ordered |
+| `~/.local/bin/wdt` | the TUI — grouped, coloured, recency-ordered |
 | `~/.local/bin/wd-pick` | fzf picker: workspace → action → run |
 | `~/.config/workdash/wd.toml` | config for `wd`, generated from `config.toml` |
 | `~/.tmux.conf` | one line: `bind w display-popup -E -w 80% -h 80% 'wd-pick'` |
@@ -98,6 +99,11 @@ An action's `where` is `pane`, `capture`, `attach` or `background`.
   since the programs that need it are desktop programs on the machine in front of
   you.
 
+- **`background`** starts the command detached and does not wait: GUI programs.
+  A browser or GUI `emacs` under `capture` makes the caller wait until you close
+  it. A remote workspace rejects this verb and tells you to add `run_on = "local"`,
+  since the programs needing it are desktop programs on the machine you are at.
+
 `run_on = "local"` runs the command on this machine even when the workspace is
 remote. That is different from `hosts`, which says which *workspaces* an action
 applies to: opening a pull request in a browser is about a remote workspace but
@@ -118,7 +124,7 @@ id = "test"
 label = "run tests"
 needs = ["worktree"]        # facets required; "!worktree" means it must be absent
 hosts = ["asia"]            # optional; omit for every host
-where = "pane"              # pane | capture | attach
+where = "pane"              # pane | capture | attach | background
 run_on = "local"            # optional; run here even for a remote workspace
 argv = ["dune", "test"]     # a list, so nothing needs quoting
 cwd = "{path}"              # optional; omitted means the worktree if there is one
