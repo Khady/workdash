@@ -37,7 +37,15 @@ func (t Tmux) Pane(resolved action.Resolved) (string, error) {
 	name := paneName(resolved)
 	argv := commandArgv(resolved)
 	if t.InsideTmux {
-		call := append([]string{"tmux", "new-window", "-n", name, "-c", resolved.Cwd, "--"}, argv...)
+		// Target the workspace's own session when it has one, so related work
+		// stays together instead of landing in whichever session you happen to be
+		// attached to.
+		target := []string{}
+		if resolved.Session != "" {
+			target = []string{"-t" + exactTarget(resolved.Session) + ":"}
+		}
+		call := append(append([]string{"tmux", "new-window"}, target...), "-n", name, "-c", resolved.Cwd, "--")
+		call = append(call, argv...)
 		if _, err := t.Runner.Run("", call); err != nil {
 			return "", err
 		}

@@ -201,3 +201,24 @@ func TestResolveAllowsAnActionScopedToARemoteHost(t *testing.T) {
 		t.Fatalf("resolved on local = %+v, want none", got)
 	}
 }
+
+// Execution needs to know the workspace already has a session, or it invents a
+// name, creates a second session on the same worktree, and attaches to the empty
+// one. Resolution knows the facts, so it carries them.
+func TestResolveCarriesAnExistingSessionName(t *testing.T) {
+	target := ws()
+	target.Sessions = []workspace.Session{{Name: "gwt-monorepo-louis-x", Path: "/wt/topic"}}
+	defs := []wdconf.Action{{ID: "shell", Where: "pane", Argv: []string{"bash"}}}
+	got := Resolve(target, defs)
+	if len(got) != 1 || got[0].Session != "gwt-monorepo-louis-x" {
+		t.Fatalf("session = %q, want the existing session name", got[0].Session)
+	}
+}
+
+func TestResolveLeavesSessionEmptyWhenThereIsNone(t *testing.T) {
+	defs := []wdconf.Action{{ID: "shell", Where: "pane", Argv: []string{"bash"}}}
+	got := Resolve(ws(), defs)
+	if got[0].Session != "" {
+		t.Fatalf("session = %q, want empty", got[0].Session)
+	}
+}

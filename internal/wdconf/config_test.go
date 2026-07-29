@@ -633,7 +633,10 @@ func TestLoadDefaultsHostAttachArgv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	want := []string{"ssh", "-t", "me@asia"}
+	// The ssh target is appended by the executor, not here, so a host default and
+	// an action-level override have the same shape. -A forwards the agent, which
+	// mosh cannot do.
+	want := []string{"ssh", "-A", "-t"}
 	got := cfg.Hosts[0].AttachArgv
 	if len(got) != len(want) {
 		t.Fatalf("attach argv = %q, want %q", got, want)
@@ -647,7 +650,7 @@ func TestLoadDefaultsHostAttachArgv(t *testing.T) {
 
 // mosh survives a suspended laptop, which is why it is worth configuring for a
 // host you keep long-running agents on.
-func TestLoadAppendsSSHTargetToConfiguredAttachArgv(t *testing.T) {
+func TestLoadKeepsConfiguredAttachArgvVerbatim(t *testing.T) {
 	path := writeConfig(t, `
 [[hosts]]
 label = "asia"
@@ -659,8 +662,8 @@ attach_argv = ["mosh", "-p", "25300:25399"]
 		t.Fatalf("Load() error = %v", err)
 	}
 	got := cfg.Hosts[0].AttachArgv
-	want := []string{"mosh", "-p", "25300:25399", "me@asia"}
-	if len(got) != len(want) || got[len(got)-1] != "me@asia" {
+	want := []string{"mosh", "-p", "25300:25399"}
+	if len(got) != len(want) || got[0] != "mosh" {
 		t.Fatalf("attach argv = %q, want %q", got, want)
 	}
 }

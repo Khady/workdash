@@ -22,8 +22,17 @@ type Resolved struct {
 	Where string   `json:"where"`
 	Argv  []string `json:"argv"`
 	Cwd   string   `json:"cwd"`
-	Shell bool     `json:"shell"`
-	Host  string   `json:"host"`
+	// Session is the workspace's existing tmux session, when it has one. The
+	// executor targets it instead of inventing a name, so an action lands in the
+	// session already doing that work rather than beside it.
+	Session string `json:"session,omitempty"`
+	// Attach overrides how a remote pane is reached, without the ssh target,
+	// which the executor appends. mosh survives a suspended laptop but breaks
+	// agent and port forwarding, so which transport to use is a property of the
+	// action, not of the host.
+	Attach []string `json:"attach,omitempty"`
+	Shell  bool     `json:"shell"`
+	Host   string   `json:"host"`
 }
 
 // tmuxName makes a branch usable as a tmux window or session name. tmux treats
@@ -53,14 +62,16 @@ func Resolve(ws workspace.Workspace, defs []wdconf.Action) []Resolved {
 			continue
 		}
 		resolved = append(resolved, Resolved{
-			ID:    def.ID,
-			Label: def.Label,
-			Name:  tmuxName(ws.ID.Branch),
-			Where: def.Where,
-			Argv:  argv,
-			Cwd:   cwd,
-			Shell: def.Shell,
-			Host:  ws.ID.Host,
+			ID:      def.ID,
+			Label:   def.Label,
+			Name:    tmuxName(ws.ID.Branch),
+			Where:   def.Where,
+			Argv:    argv,
+			Cwd:     cwd,
+			Session: firstSession(ws),
+			Attach:  def.AttachArgv,
+			Shell:   def.Shell,
+			Host:    ws.ID.Host,
 		})
 	}
 	return resolved
@@ -84,6 +95,13 @@ func resolveCwd(cwd string, values map[string]string) (string, bool) {
 // able to select on it.
 // onHost reports whether an action applies to a host. An empty list means every
 // host, so scoping is opt-in.
+func firstSession(ws workspace.Workspace) string {
+	if len(ws.Sessions) == 0 {
+		return ""
+	}
+	return ws.Sessions[0].Name
+}
+
 func onHost(host string, hosts []string) bool {
 	if len(hosts) == 0 {
 		return true

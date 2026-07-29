@@ -26,21 +26,38 @@ type Remote struct {
 }
 
 func (r Remote) Pane(resolved action.Resolved) (string, error) {
+	// Prefer the session the workspace already has. Its name was chosen by
+	// whatever created it — gwt, or a hand-run tmux — so inventing one from the
+	// branch would create a second session on the same worktree and attach to the
+	// empty one.
 	name := paneName(resolved)
+	if resolved.Session != "" {
+		name = resolved.Session
+	}
 	argv := commandArgv(resolved)
 	create := []string{"tmux", "new-session", "-d", "-s", name, "-c", resolved.Cwd, "--"}
 	verb := "created remote session"
-	if r.hasSession(name) {
-		create = []string{"tmux", "new-window", "-t" + exactTarget(name) + ":", "-n", name, "-c", resolved.Cwd, "--"}
+	if resolved.Session != "" || r.hasSession(name) {
+		create = []string{"tmux", "new-window", "-t" + exactTarget(name) + ":", "-n", paneName(resolved), "-c", resolved.Cwd, "--"}
 		verb = "opened a window in remote session"
 	}
 	if _, err := r.ssh(append(create, argv...)); err != nil {
 		return "", err
 	}
-	attach := append(append([]string{}, r.Attach...), "tmux", "attach", "-t"+exactTarget(name))
+	// The remote command travels as ONE argv element beginning with a word.
+	// mosh keeps scanning for its own options after the host, so a first token
+	// starting with "-" makes it print usage and exit 255 — and because tmux
+	// closes a window whose command dies, that failure looks like nothing
+	// happening at all.
+	transport := r.Attach
+	if len(resolved.Attach) > 0 {
+		transport = resolved.Attach
+	}
+	attach := append(append([]string{}, transport...), r.Target,
+		shellquote.Join([]string{"tmux", "attach", "-t" + exactTarget(name)}))
 	local := action.Resolved{
 		ID:   resolved.ID,
-		Name: resolved.Host + "/" + name,
+		Name: resolved.Host + "/" + paneName(resolved),
 		Argv: attach,
 		// The attaching window has no meaningful local directory: its cwd lives
 		// on the other machine.

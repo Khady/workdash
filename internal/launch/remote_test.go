@@ -126,3 +126,89 @@ func TestRemotePaneReportsFailureToReachTheHost(t *testing.T) {
 		t.Fatal("Pane() error = nil, want the ssh failure")
 	}
 }
+
+// mosh scans for its own options after the host, so a remote command whose first
+// token starts with "-" makes it print usage and exit 255 — which looked exactly
+// like "nothing happened", because tmux closes a window whose command dies. The
+// remote command therefore travels as one argv element that starts with a word.
+func TestRemotePaneSendsTheAttachCommandAsASingleWord(t *testing.T) {
+	runner := &recordRunner{sessions: map[string]bool{"topic": true}}
+	if _, err := remoteFixture(runner, true).Pane(remoteResolved()); err != nil {
+		t.Fatalf("Pane() error = %v", err)
+	}
+	local := runner.argv(len(runner.calls) - 1)
+	last := local[len(local)-1]
+	if !strings.HasPrefix(last, "tmux attach") {
+		t.Fatalf("attach element = %q, want one element beginning with \"tmux attach\"", last)
+	}
+	for _, arg := range local {
+		if strings.HasPrefix(arg, "-t=") {
+			t.Fatalf("argv = %q, want no bare -t element for mosh to misread", local)
+		}
+	}
+}
+
+// The workspace already has a session, created by gwt with a name workdash would
+// never pick. Attaching must land in that one, not in a second session named
+// after the branch.
+func TestRemotePaneReusesTheWorkspacesExistingSession(t *testing.T) {
+	runner := &recordRunner{sessions: map[string]bool{"gwt-monorepo-louis-x": true}}
+	resolved := remoteResolved()
+	resolved.Session = "gwt-monorepo-louis-x"
+	out, err := remoteFixture(runner, true).Pane(resolved)
+	if err != nil {
+		t.Fatalf("Pane() error = %v", err)
+	}
+	for i := range runner.calls {
+		if joined := strings.Join(runner.argv(i), " "); strings.Contains(joined, "new-session") {
+			t.Fatalf("call %d = %q, want no new session when one already exists", i, runner.argv(i))
+		}
+	}
+	all := ""
+	for i := range runner.calls {
+		all += strings.Join(runner.argv(i), " ") + "\n"
+	}
+	if !strings.Contains(all, "gwt-monorepo-louis-x") {
+		t.Fatalf("calls:\n%s\nwant the existing session targeted", all)
+	}
+	if strings.Contains(all, "-s topic") {
+		t.Fatalf("calls:\n%s\nwant no session named after the branch", all)
+	}
+	if !strings.Contains(out, "gwt-monorepo-louis-x") {
+		t.Fatalf("message = %q, want it to name where the command landed", out)
+	}
+}
+
+// mosh breaks agent forwarding and port forwarding, so it must be selectable per
+// action rather than per host: vim and emacs want it, a shell does not.
+func TestRemotePaneUsesTheActionsOwnAttachWhenGiven(t *testing.T) {
+	runner := &recordRunner{sessions: map[string]bool{"topic": true}}
+	remote := Remote{Runner: runner, Target: "me@asia",
+		Attach: []string{"ssh", "-A", "-t"}, Local: Tmux{Runner: runner, InsideTmux: true}}
+	resolved := remoteResolved()
+	resolved.Attach = []string{"mosh", "-p", "25300:25399", "--"}
+	if _, err := remote.Pane(resolved); err != nil {
+		t.Fatalf("Pane() error = %v", err)
+	}
+	local := runner.argv(len(runner.calls) - 1)
+	joined := strings.Join(local, " ")
+	if !strings.Contains(joined, "mosh -p 25300:25399 -- me@asia tmux attach") {
+		t.Fatalf("argv = %q, want mosh with the target after --", local)
+	}
+	if strings.Contains(joined, "ssh -A") {
+		t.Fatalf("argv = %q, want the host default overridden", local)
+	}
+}
+
+func TestRemotePaneFallsBackToTheHostAttach(t *testing.T) {
+	runner := &recordRunner{sessions: map[string]bool{"topic": true}}
+	remote := Remote{Runner: runner, Target: "me@asia",
+		Attach: []string{"ssh", "-A", "-t"}, Local: Tmux{Runner: runner, InsideTmux: true}}
+	if _, err := remote.Pane(remoteResolved()); err != nil {
+		t.Fatalf("Pane() error = %v", err)
+	}
+	joined := strings.Join(runner.argv(len(runner.calls)-1), " ")
+	if !strings.Contains(joined, "ssh -A -t me@asia tmux attach") {
+		t.Fatalf("argv = %q, want the host's ssh attach with the target appended", joined)
+	}
+}

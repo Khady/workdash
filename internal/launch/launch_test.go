@@ -209,3 +209,23 @@ func TestCaptureRunsInWorkspaceDirectory(t *testing.T) {
 	}
 	wantArgv(t, runner.argv(0), []string{"git", "status"})
 }
+
+// Locally too: a workspace with a session already doing that work should get the
+// new window in that session, not beside it in whichever session you happen to
+// be sitting in.
+func TestPaneTargetsTheWorkspacesExistingSessionInsideTmux(t *testing.T) {
+	runner := &recordRunner{sessions: map[string]bool{"gwt-local-x": true}}
+	tmux := Tmux{Runner: runner, InsideTmux: true}
+	resolved := action.Resolved{ID: "shell", Name: "topic", Session: "gwt-local-x",
+		Argv: []string{"bash"}, Cwd: "/wt/topic"}
+	if _, err := tmux.Pane(resolved); err != nil {
+		t.Fatalf("Pane() error = %v", err)
+	}
+	joined := strings.Join(runner.argv(0), " ")
+	if !strings.Contains(joined, "-t=gwt-local-x:") {
+		t.Fatalf("argv = %q, want the existing session targeted", runner.argv(0))
+	}
+	if !strings.Contains(joined, "-n topic") {
+		t.Fatalf("argv = %q, want the window still named after the branch", runner.argv(0))
+	}
+}

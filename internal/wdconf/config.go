@@ -37,6 +37,10 @@ type Action struct {
 	Argv  []string `toml:"argv"`
 	Cwd   string   `toml:"cwd"`
 	Shell bool     `toml:"shell"`
+	// AttachArgv overrides the host's way of reaching a remote pane, without the
+	// ssh target. Set it to mosh for editors; leave it empty for anything that
+	// needs agent or port forwarding.
+	AttachArgv []string `toml:"attach_argv"`
 }
 
 // Host is a machine reachable over ssh whose repos are collected alongside the
@@ -207,9 +211,11 @@ func normalizeHosts(hosts []Host) error {
 			return fmt.Errorf("host %q: `ssh_target` %q must not contain whitespace", host.Label, host.SSHTarget)
 		}
 		if len(host.AttachArgv) == 0 {
-			host.AttachArgv = []string{"ssh", "-t"}
+			// -A forwards the agent and -t allocates a tty. The ssh target is not
+			// appended here: the executor adds it, so a host default and an
+			// action override have the same shape.
+			host.AttachArgv = []string{"ssh", "-A", "-t"}
 		}
-		host.AttachArgv = append(append([]string{}, host.AttachArgv...), host.SSHTarget)
 		if err := normalizeRepos(host.Repos, fmt.Sprintf("host %q: ", host.Label), false); err != nil {
 			return err
 		}

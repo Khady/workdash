@@ -116,6 +116,12 @@ Two settings that exist for real reasons:
   path that does not exist locally, and keeps a command installed on only one
   machine from being offered on the other. `gwt`, `gwt-delete` and `agents` are
   scoped to `asia` because they are not installed here.
+- **`attach_argv`** on an action overrides how a remote pane is reached. The host
+  default is `["ssh", "-A", "-t"]` so agent forwarding and the `LocalForward`
+  entries in `~/.ssh/config` keep working. mosh is opted into per action — it
+  survives a suspended laptop, which is worth it for an editor, but it cannot
+  forward the agent or ports, so shells must not use it. Note mosh needs `--`
+  before the target: `["mosh", "-p", "25300:25399", "--"]`.
 - **`shell = true`** runs through `bash -ic`, so shell functions from your rc
   resolve. This is how `wd` calls `gwt` instead of reimplementing it — a worktree
   created here and one created by typing `gwt` yourself are the same thing.
@@ -145,6 +151,10 @@ can tell "nothing to show" from "everything is broken".
 - **No remote GUI editors.** `code --remote` and `zed ssh://` from `config.toml`
   did not carry over: they need an ssh target inside the action language. Terminal
   editors are unaffected, since a remote `pane` runs where the code is.
+- **No recency data.** The old TUI sorted by last activity and grouped by kind,
+  which is what made a long list usable. The new core collects no timestamps, so
+  `wd ls` is alphabetical — the main reason a flat 800-row list reads worse than
+  the old dashboard.
 - **A window opened inside your current session is invisible to `wd ls`.** The
   collector lists sessions, not windows, so a window created for workspace B while
   you sit in session A is not reported as a facet of B.
