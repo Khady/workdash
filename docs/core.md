@@ -114,9 +114,11 @@ wd actions rewrite/core-facets         # what can I do here
 wd run rewrite/core-facets agent       # launch claude in a tmux window
 ```
 
-A selector is a branch name, or `repo:branch` when a branch exists in several
-repos. Git forbids `:` in ref names, so the split is unambiguous even for
-branches with slashes.
+A selector is `[host:][repo:]branch`. Git forbids `:` in ref names and config
+validation forbids it in labels, so the split is unambiguous even for branches
+with slashes. A two-part selector means `repo:branch`, never `host:branch`, so
+host qualification is spelled out in full. Ambiguity errors list candidates
+fully qualified, so every candidate is a selector you can type back.
 
 `wd run` with a `pane` action opens a tmux window when you are inside tmux, and
 creates a detached session when you are not. Workdash never spawns a terminal
@@ -140,8 +142,8 @@ Two things a code review surfaced that are deliberately left as-is for now:
   unable to attach at all, which is worse. Choosing between several sessions is
   a job for a frontend that can ask.
 
-## Not in this slice
+## Not yet built
 
-Remote hosts, PR collection, the daemon and its socket protocol, push-based
-freshness, the TUI, and the browser popup. The `PR` facet and the `Host` field
-exist so those slot in without a model change.
+PR collection, remote *actions* (launching a pane on `asia`), the daemon and its
+socket protocol, push-based freshness, the TUI, and the browser popup. The `PR`
+facet exists so PR collection slots in without a model change.
