@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,6 +16,13 @@ import (
 const (
 	WherePane    = "pane"
 	WhereCapture = "capture"
+	// WhereAttach connects to a session that already exists. It takes no argv.
+	WhereAttach = "attach"
+	// RunOnLocal runs the command on this machine even when the workspace lives on
+	// another one. Opening a pull request in a browser is about the workspace but
+	// belongs on the laptop, which `hosts` cannot express: `hosts` says which
+	// workspaces an action applies to, not where its command runs.
+	RunOnLocal = "local"
 )
 
 type Repo struct {
@@ -38,6 +46,8 @@ type Action struct {
 	Argv  []string `toml:"argv"`
 	Cwd   string   `toml:"cwd"`
 	Shell bool     `toml:"shell"`
+	// RunOn is empty for "the workspace's host", or RunOnLocal for this machine.
+	RunOn string `toml:"run_on"`
 	// AttachArgv overrides the host's way of reaching a remote pane, without the
 	// ssh target. Set it to mosh for editors; leave it empty for anything that
 	// needs agent or port forwarding.
@@ -147,14 +157,29 @@ func Load(path string) (Config, error) {
 		if strings.TrimSpace(action.ID) == "" {
 			return Config{}, fmt.Errorf("action %d: `id` is required", i)
 		}
-		if len(action.Argv) == 0 {
+		if len(action.Argv) == 0 && action.Where != WhereAttach {
 			return Config{}, fmt.Errorf("action %q: `argv` must be non-empty", action.ID)
+		}
+		if action.Where == WhereAttach && len(action.Argv) > 0 {
+			return Config{}, fmt.Errorf("action %q: `attach` takes no `argv`: it connects to an existing session", action.ID)
+		}
+		if action.RunOn != "" && action.RunOn != RunOnLocal {
+			return Config{}, fmt.Errorf("action %q: `run_on` must be %q or omitted", action.ID, RunOnLocal)
 		}
 		if action.Where == "" {
 			action.Where = WherePane
 		}
-		if action.Where != WherePane && action.Where != WhereCapture {
-			return Config{}, fmt.Errorf("action %q: `where` must be %q or %q", action.ID, WherePane, WhereCapture)
+		switch action.Where {
+		case WherePane, WhereCapture:
+		case WhereAttach:
+			// Attaching without a session is meaningless, so the facet is implied
+			// rather than something every attach action has to remember.
+			if !slices.Contains(action.Needs, workspace.FacetSession) {
+				action.Needs = append(action.Needs, workspace.FacetSession)
+			}
+		default:
+			return Config{}, fmt.Errorf("action %q: `where` must be %q, %q or %q",
+				action.ID, WherePane, WhereCapture, WhereAttach)
 		}
 		for _, need := range action.Needs {
 			if err := checkFacet(action.ID, need); err != nil {

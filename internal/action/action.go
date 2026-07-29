@@ -31,8 +31,10 @@ type Resolved struct {
 	// agent and port forwarding, so which transport to use is a property of the
 	// action, not of the host.
 	Attach []string `json:"attach,omitempty"`
-	Shell  bool     `json:"shell"`
-	Host   string   `json:"host"`
+	// RunOn is empty for the workspace's host, or "local" for this machine.
+	RunOn string `json:"run_on,omitempty"`
+	Shell bool   `json:"shell"`
+	Host  string `json:"host"`
 }
 
 // tmuxName makes a branch usable as a tmux window or session name. tmux treats
@@ -70,6 +72,7 @@ func Resolve(ws workspace.Workspace, defs []wdconf.Action) []Resolved {
 			Cwd:     cwd,
 			Session: firstSession(ws),
 			Attach:  def.AttachArgv,
+			RunOn:   def.RunOn,
 			Shell:   def.Shell,
 			Host:    ws.ID.Host,
 		})

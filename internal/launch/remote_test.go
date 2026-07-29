@@ -11,10 +11,10 @@ import (
 
 func remoteFixture(runner Runner, insideTmux bool) Remote {
 	return Remote{
-		Runner: runner,
-		Target: "me@asia",
-		Attach: []string{"mosh", "-p", "25300:25399", "me@asia"},
-		Local:  Tmux{Runner: runner, InsideTmux: insideTmux},
+		Runner:     runner,
+		Target:     "me@asia",
+		AttachArgv: []string{"mosh", "-p", "25300:25399", "me@asia"},
+		Local:      Tmux{Runner: runner, InsideTmux: insideTmux},
 	}
 }
 
@@ -184,7 +184,7 @@ func TestRemotePaneReusesTheWorkspacesExistingSession(t *testing.T) {
 func TestRemotePaneUsesTheActionsOwnAttachWhenGiven(t *testing.T) {
 	runner := &recordRunner{sessions: map[string]bool{"topic": true}}
 	remote := Remote{Runner: runner, Target: "me@asia",
-		Attach: []string{"ssh", "-A", "-t"}, Local: Tmux{Runner: runner, InsideTmux: true}}
+		AttachArgv: []string{"ssh", "-A", "-t"}, Local: Tmux{Runner: runner, InsideTmux: true}}
 	resolved := remoteResolved()
 	resolved.Attach = []string{"mosh", "-p", "25300:25399", "--"}
 	if _, err := remote.Pane(resolved); err != nil {
@@ -203,12 +203,40 @@ func TestRemotePaneUsesTheActionsOwnAttachWhenGiven(t *testing.T) {
 func TestRemotePaneFallsBackToTheHostAttach(t *testing.T) {
 	runner := &recordRunner{sessions: map[string]bool{"topic": true}}
 	remote := Remote{Runner: runner, Target: "me@asia",
-		Attach: []string{"ssh", "-A", "-t"}, Local: Tmux{Runner: runner, InsideTmux: true}}
+		AttachArgv: []string{"ssh", "-A", "-t"}, Local: Tmux{Runner: runner, InsideTmux: true}}
 	if _, err := remote.Pane(remoteResolved()); err != nil {
 		t.Fatalf("Pane() error = %v", err)
 	}
 	joined := strings.Join(runner.argv(len(runner.calls)-1), " ")
 	if !strings.Contains(joined, "ssh -A -t me@asia tmux attach") {
 		t.Fatalf("argv = %q, want the host's ssh attach with the target appended", joined)
+	}
+}
+
+// Attaching to a remote session must not create a window there: it opens a local
+// window that connects to the session as it is.
+func TestRemoteAttachOpensALocalWindowAndCreatesNothingRemote(t *testing.T) {
+	runner := &recordRunner{sessions: map[string]bool{"gwt-monorepo-louis-x": true}}
+	resolved := remoteResolved()
+	resolved.Session = "gwt-monorepo-louis-x"
+	out, err := remoteFixture(runner, true).Attach(resolved)
+	if err != nil {
+		t.Fatalf("Attach() error = %v", err)
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("calls = %d %q, want only the local window", len(runner.calls), runner.calls)
+	}
+	joined := strings.Join(runner.argv(0), " ")
+	if !strings.HasPrefix(joined, "tmux new-window") {
+		t.Fatalf("call = %q, want a local tmux window", runner.argv(0))
+	}
+	if strings.Contains(joined, "new-session") || strings.Contains(joined, "ssh -o") {
+		t.Fatalf("call = %q, want nothing created on the far side", runner.argv(0))
+	}
+	if !strings.Contains(joined, "gwt-monorepo-louis-x") {
+		t.Fatalf("call = %q, want it to attach to the existing session", runner.argv(0))
+	}
+	if !strings.Contains(out, "gwt-monorepo-louis-x") {
+		t.Fatalf("message = %q", out)
 	}
 }

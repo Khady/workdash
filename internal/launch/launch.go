@@ -26,6 +26,11 @@ type Runner interface {
 type Executor interface {
 	Pane(action.Resolved) (string, error)
 	Capture(action.Resolved) (string, error)
+	// Attach connects to a session that already exists, creating nothing. It is
+	// its own verb because "take me to the work that is already running" is not a
+	// command to run, and it is what a dashboard built around focus rather than
+	// launch mostly does.
+	Attach(action.Resolved) (string, error)
 }
 
 type Tmux struct {
@@ -66,6 +71,22 @@ func (t Tmux) Pane(resolved action.Resolved) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("created detached session %q; attach with `tmux attach -t %s`", name, name), nil
+}
+
+func (t Tmux) Attach(resolved action.Resolved) (string, error) {
+	if resolved.Session == "" {
+		return "", fmt.Errorf("nothing to attach to: %s has no session", resolved.Name)
+	}
+	verb := "attach"
+	if t.InsideTmux {
+		// switch-client moves the client you are already using; attach would try to
+		// nest a session inside itself.
+		verb = "switch-client"
+	}
+	if _, err := t.Runner.Run("", []string{"tmux", verb, "-t" + exactTarget(resolved.Session)}); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("attached to session %q", resolved.Session), nil
 }
 
 func (t Tmux) Capture(resolved action.Resolved) (string, error) {

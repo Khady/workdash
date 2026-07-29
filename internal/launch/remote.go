@@ -20,7 +20,7 @@ type Remote struct {
 	// Attach reaches the host interactively, ending in the ssh target. Defaults
 	// to ssh with a tty; mosh is worth configuring for a host you keep
 	// long-running agents on, because it survives a suspended laptop.
-	Attach []string
+	AttachArgv []string
 	// Local creates the window that attaches to the remote session.
 	Local Tmux
 }
@@ -49,12 +49,7 @@ func (r Remote) Pane(resolved action.Resolved) (string, error) {
 	// starting with "-" makes it print usage and exit 255 — and because tmux
 	// closes a window whose command dies, that failure looks like nothing
 	// happening at all.
-	transport := r.Attach
-	if len(resolved.Attach) > 0 {
-		transport = resolved.Attach
-	}
-	attach := append(append([]string{}, transport...), r.Target,
-		shellquote.Join([]string{"tmux", "attach", "-t" + exactTarget(name)}))
+	attach := r.attachArgv(resolved, name)
 	local := action.Resolved{
 		ID:   resolved.ID,
 		Name: resolved.Host + "/" + paneName(resolved),
@@ -67,6 +62,38 @@ func (r Remote) Pane(resolved action.Resolved) (string, error) {
 		return "", fmt.Errorf("%s %q on %s, but attaching locally failed: %w", verb, name, resolved.Host, err)
 	}
 	return fmt.Sprintf("%s %q on %s and attached locally", verb, name, resolved.Host), nil
+}
+
+// Attach opens a local window connected to an existing remote session. Nothing is
+// created on the far side — that is the difference from Pane.
+func (r Remote) Attach(resolved action.Resolved) (string, error) {
+	if resolved.Session == "" {
+		return "", fmt.Errorf("nothing to attach to: %s has no session on %s", resolved.Name, resolved.Host)
+	}
+	local := action.Resolved{
+		ID:   resolved.ID,
+		Name: resolved.Host + "/" + paneName(resolved),
+		Argv: r.attachArgv(resolved, resolved.Session),
+	}
+	if _, err := r.Local.Pane(local); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("attached to session %q on %s", resolved.Session, resolved.Host), nil
+}
+
+// attachArgv builds the local command that reaches an existing remote session.
+//
+// The remote part travels as ONE argv element beginning with a word: mosh keeps
+// scanning for its own options after the host, so a first token starting with "-"
+// makes it print usage and exit 255 — and since tmux closes a window whose command
+// dies, that failure looks like nothing happening at all.
+func (r Remote) attachArgv(resolved action.Resolved, session string) []string {
+	transport := r.AttachArgv
+	if len(resolved.Attach) > 0 {
+		transport = resolved.Attach
+	}
+	return append(append([]string{}, transport...), r.Target,
+		shellquote.Join([]string{"tmux", "attach", "-t" + exactTarget(session)}))
 }
 
 func (r Remote) Capture(resolved action.Resolved) (string, error) {

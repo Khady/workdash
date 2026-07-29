@@ -14,7 +14,7 @@ import (
 
 	"github.com/Khady/workdash/internal/action"
 	"github.com/Khady/workdash/internal/collect"
-	"github.com/Khady/workdash/internal/launch"
+	"github.com/Khady/workdash/internal/dispatch"
 	"github.com/Khady/workdash/internal/snapshot"
 	"github.com/Khady/workdash/internal/wdconf"
 	"github.com/Khady/workdash/internal/workspace"
@@ -106,11 +106,11 @@ func run(argv []string) error {
 			if resolved.ID != argv[2] {
 				continue
 			}
-			executor, err := executorFor(cfg, resolved.Host)
+			executor, err := dispatch.ExecutorFor(cfg, dispatch.Host(resolved))
 			if err != nil {
 				return err
 			}
-			out, err := execute(executor, resolved)
+			out, err := dispatch.Execute(executor, resolved)
 			if err != nil {
 				return err
 			}
@@ -123,37 +123,6 @@ func run(argv []string) error {
 			argv[2], argv[1], strings.Join(actionIDs(available), ", "))
 	}
 	return fmt.Errorf("unknown command %q\n\n%s", argv[0], usage)
-}
-
-// executorFor picks how to reach a workspace's host. The local machine runs tmux
-// directly; a remote one creates the window over ssh and attaches to it from a
-// local tmux window, so remote work lands in the same window list as local work.
-func executorFor(cfg wdconf.Config, host string) (launch.Executor, error) {
-	local := launch.Tmux{Runner: collect.LocalRunner{}, InsideTmux: os.Getenv("TMUX") != ""}
-	if host == wdconf.LocalHost {
-		return local, nil
-	}
-	for _, configured := range cfg.Hosts {
-		if configured.Label != host {
-			continue
-		}
-		return launch.Remote{
-			Runner: collect.LocalRunner{},
-			Target: configured.SSHTarget,
-			Attach: configured.AttachArgv,
-			Local:  local,
-		}, nil
-	}
-	return nil, fmt.Errorf("unknown host %q", host)
-}
-
-// execute takes the executor as a parameter rather than building one, so the
-// where-dispatch is testable without touching tmux.
-func execute(executor launch.Executor, resolved action.Resolved) (string, error) {
-	if resolved.Where == wdconf.WhereCapture {
-		return executor.Capture(resolved)
-	}
-	return executor.Pane(resolved)
 }
 
 // snapshotFailed distinguishes "nothing to show" from "every collector broke".

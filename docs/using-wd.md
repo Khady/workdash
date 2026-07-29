@@ -78,12 +78,21 @@ wd: "monorepo:develop" is ambiguous: asia:monorepo:develop, local:monorepo:devel
 
 ## Where things run
 
-An action's `where` is `pane` or `capture`.
+An action's `where` is `pane`, `capture` or `attach`.
 
 - **`pane`** goes into a tmux window: shells, editors, agents. Inside tmux you get
-  a new window in the current session; outside it, a detached session and the
-  command to attach.
+  a new window; outside it, a detached session and the command to attach. If the
+  workspace already has a session, the window goes *there* rather than beside it.
 - **`capture`** runs and prints: `git status`, `xdg-open`.
+- **`attach`** connects to the session that already exists and creates nothing.
+  It takes no `argv` and implies `needs = ["session"]`. Locally it switches the
+  client; for a remote workspace it opens a local window connected to the remote
+  session. This is the verb for "take me to the work that is already running".
+
+`run_on = "local"` runs the command on this machine even when the workspace is
+remote. That is different from `hosts`, which says which *workspaces* an action
+applies to: opening a pull request in a browser is about a remote workspace but
+belongs on your laptop.
 
 For a **remote** workspace, `pane` creates the window on asia first — so the work
 survives losing the connection — then attaches from a local tmux window named
@@ -100,7 +109,8 @@ id = "test"
 label = "run tests"
 needs = ["worktree"]        # facets required; "!worktree" means it must be absent
 hosts = ["asia"]            # optional; omit for every host
-where = "pane"              # pane | capture
+where = "pane"              # pane | capture | attach
+run_on = "local"            # optional; run here even for a remote workspace
 argv = ["dune", "test"]     # a list, so nothing needs quoting
 cwd = "{path}"              # optional; omitted means the worktree if there is one
 shell = true                # optional; run via your login shell so rc functions resolve

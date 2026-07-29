@@ -229,3 +229,39 @@ func TestPaneTargetsTheWorkspacesExistingSessionInsideTmux(t *testing.T) {
 		t.Fatalf("argv = %q, want the window still named after the branch", runner.argv(0))
 	}
 }
+
+// Attach creates nothing. It is the third verb because "connect me to what is
+// already running" is not "run a command" — and it is the whole point of a tool
+// built around focus-versus-launch.
+func TestAttachSwitchesClientInsideTmux(t *testing.T) {
+	runner := &recordRunner{}
+	tmux := Tmux{Runner: runner, InsideTmux: true}
+	out, err := tmux.Attach(action.Resolved{ID: "attach", Name: "topic", Session: "gwt-local-x"})
+	if err != nil {
+		t.Fatalf("Attach() error = %v", err)
+	}
+	wantArgv(t, runner.argv(0), []string{"tmux", "switch-client", "-t=gwt-local-x"})
+	if !strings.Contains(out, "gwt-local-x") {
+		t.Fatalf("message = %q, want it to name the session", out)
+	}
+}
+
+func TestAttachAttachesWhenOutsideTmux(t *testing.T) {
+	runner := &recordRunner{}
+	tmux := Tmux{Runner: runner, InsideTmux: false}
+	if _, err := tmux.Attach(action.Resolved{ID: "attach", Name: "topic", Session: "sess"}); err != nil {
+		t.Fatalf("Attach() error = %v", err)
+	}
+	wantArgv(t, runner.argv(0), []string{"tmux", "attach", "-t=sess"})
+}
+
+func TestAttachRefusesWithoutASession(t *testing.T) {
+	runner := &recordRunner{}
+	tmux := Tmux{Runner: runner, InsideTmux: true}
+	if _, err := tmux.Attach(action.Resolved{ID: "attach", Name: "topic"}); err == nil {
+		t.Fatal("Attach() error = nil, want a refusal when there is no session")
+	}
+	if len(runner.calls) != 0 {
+		t.Fatalf("calls = %q, want none", runner.calls)
+	}
+}
