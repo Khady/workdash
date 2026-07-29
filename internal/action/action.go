@@ -81,8 +81,10 @@ func placeholders(ws workspace.Workspace) map[string]string {
 	if ws.Worktree != nil {
 		values["{path}"] = ws.Worktree.Path
 	}
-	if ws.Session != nil {
-		values["{session}"] = ws.Session.Name
+	// {session} is the first session on the workspace. Actions that need to pick
+	// between several belong in a frontend that can ask, not in a template.
+	if len(ws.Sessions) > 0 {
+		values["{session}"] = ws.Sessions[0].Name
 	}
 	if ws.PR != nil {
 		values["{pr_url}"] = ws.PR.URL

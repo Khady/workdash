@@ -47,11 +47,14 @@ type PR struct {
 	Draft  bool   `json:"draft"`
 }
 
+// Sessions is a slice because one worktree legitimately hosts several: an agent
+// in one, a shell in another. Collapsing them to a single session would report
+// the extras as unrelated.
 type Workspace struct {
 	ID        ID        `json:"id"`
 	RepoLabel string    `json:"repo_label"`
 	Worktree  *Worktree `json:"worktree,omitempty"`
-	Session   *Session  `json:"session,omitempty"`
+	Sessions  []Session `json:"sessions,omitempty"`
 	PR        *PR       `json:"pr,omitempty"`
 }
 
@@ -60,7 +63,7 @@ func (w Workspace) Has(facet string) bool {
 	case FacetWorktree:
 		return w.Worktree != nil
 	case FacetSession:
-		return w.Session != nil
+		return len(w.Sessions) > 0
 	case FacetPR:
 		return w.PR != nil
 	}

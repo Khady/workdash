@@ -25,8 +25,25 @@ func TestIndexAttachesSessionByWorktreePath(t *testing.T) {
 	if len(snap.Orphans) != 0 {
 		t.Fatalf("got %d orphans, want 0", len(snap.Orphans))
 	}
-	if snap.Workspaces[0].Session == nil || snap.Workspaces[0].Session.Name != "topic" {
-		t.Fatalf("session not attached: %+v", snap.Workspaces[0].Session)
+	if len(snap.Workspaces[0].Sessions) != 1 || snap.Workspaces[0].Sessions[0].Name != "topic" {
+		t.Fatalf("session not attached: %+v", snap.Workspaces[0].Sessions)
+	}
+}
+
+func TestIndexAttachesEverySessionSharingAWorktree(t *testing.T) {
+	git := []GitRecord{{ID: ID{Host: "local", Repo: "/repo", Branch: "topic"},
+		Worktree: &Worktree{Path: "/wt/topic"}}}
+	sessions := []SessionRecord{
+		{Host: "local", Session: Session{Name: "agent", Path: "/wt/topic"}},
+		{Host: "local", Session: Session{Name: "review", Path: "/wt/topic"}},
+	}
+	snap := Index(git, sessions)
+	if len(snap.Orphans) != 0 {
+		t.Fatalf("orphans = %+v, want none: both sessions belong to a known worktree", snap.Orphans)
+	}
+	got := snap.Workspaces[0].Sessions
+	if len(got) != 2 || got[0].Name != "agent" || got[1].Name != "review" {
+		t.Fatalf("sessions = %+v, want agent and review", got)
 	}
 }
 
@@ -46,7 +63,7 @@ func TestIndexDoesNotAttachSessionFromAnotherHost(t *testing.T) {
 		Worktree: &Worktree{Path: "/wt/topic"}}}
 	sessions := []SessionRecord{{Host: "asia", Session: Session{Name: "topic", Path: "/wt/topic"}}}
 	snap := Index(git, sessions)
-	if snap.Workspaces[0].Session != nil {
+	if len(snap.Workspaces[0].Sessions) != 0 {
 		t.Fatal("session from another host should not attach")
 	}
 	if len(snap.Orphans) != 1 {

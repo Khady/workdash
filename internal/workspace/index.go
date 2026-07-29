@@ -50,7 +50,7 @@ func Index(git []GitRecord, sessions []SessionRecord) Snapshot {
 		var target *Workspace
 		for _, id := range order {
 			ws := byID[id]
-			if ws.ID.Host != record.Host || ws.Session != nil {
+			if ws.ID.Host != record.Host {
 				continue
 			}
 			if ws.Worktree != nil && ws.Worktree.Path == record.Session.Path {
@@ -62,8 +62,7 @@ func Index(git []GitRecord, sessions []SessionRecord) Snapshot {
 			orphans = append(orphans, record)
 			continue
 		}
-		session := record.Session
-		target.Session = &session
+		target.Sessions = append(target.Sessions, record.Session)
 	}
 
 	workspaces := make([]Workspace, 0, len(order))

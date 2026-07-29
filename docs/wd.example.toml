@@ -1,0 +1,47 @@
+# Example config for the `wd` core. Point $WD_CONFIG at this file to try it
+# without touching ~/.config/workdash/config.toml, which the old TUI still uses.
+#
+# Actions declare argv (a list, so nothing needs quoting), the facets they need,
+# and where they run: `pane` for a tmux window, `capture` to run and show output.
+
+[[repos]]
+root = "/home/louis/Code/github/workdash"
+
+[[actions]]
+id = "shell"
+label = "open shell"
+needs = ["worktree"]
+where = "pane"
+argv = ["bash"]
+
+[[actions]]
+id = "agent"
+label = "launch claude"
+needs = ["worktree"]
+where = "pane"
+argv = ["claude"]
+
+[[actions]]
+id = "status"
+label = "git status"
+needs = ["worktree"]
+where = "capture"
+argv = ["git", "status", "--short", "--branch"]
+
+# shell = true runs via `bash -ic`, so shell functions from your rc resolve.
+# workdash calls gwt rather than reimplementing it: a worktree created here and
+# one created by typing `gwt NAME` yourself are the same thing.
+[[actions]]
+id = "gwt"
+label = "create worktree"
+where = "pane"
+shell = true
+argv = ["gwt", "{branch}"]
+cwd = "{repo}"
+
+[[actions]]
+id = "attach"
+label = "attach session"
+needs = ["session"]
+where = "capture"
+argv = ["tmux", "switch-client", "-t", "{session}"]
