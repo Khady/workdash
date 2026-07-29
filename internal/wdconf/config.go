@@ -31,10 +31,25 @@ type Action struct {
 	Shell bool     `toml:"shell"`
 }
 
+// Host is a machine reachable over ssh whose repos are collected alongside the
+// local ones. The local machine is not spelled out in the config; it is implied,
+// which is why `local` is not available as a host label.
+type Host struct {
+	Label       string `toml:"label"`
+	SSHTarget   string `toml:"ssh_target"`
+	TmuxEnabled bool   `toml:"tmux"`
+	Repos       []Repo `toml:"repos"`
+}
+
 type Config struct {
 	Repos   []Repo   `toml:"repos"`
+	Hosts   []Host   `toml:"hosts"`
 	Actions []Action `toml:"actions"`
 }
+
+// LocalHost is the label the local machine collects under. It is reserved, so a
+// configured host cannot claim it and shadow the local workspaces.
+const LocalHost = "local"
 
 func DefaultPath() string {
 	if path := os.Getenv("WD_CONFIG"); path != "" {
@@ -56,26 +71,11 @@ func Load(path string) (Config, error) {
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return Config{}, err
 	}
-	// Labels are how the CLI names a repo, so they have to stay unique and
-	// colon-free: `wd run LABEL:BRANCH ACTION` splits on the first colon, and two
-	// repos sharing a label leave no selector able to tell them apart.
-	rootByLabel := map[string]string{}
-	for i := range cfg.Repos {
-		repo := &cfg.Repos[i]
-		if strings.TrimSpace(repo.Root) == "" {
-			return Config{}, fmt.Errorf("repo %d: `root` is required", i)
-		}
-		repo.Root = filepath.Clean(expandHome(strings.TrimSpace(repo.Root)))
-		if repo.Label == "" {
-			repo.Label = filepath.Base(repo.Root)
-		}
-		if strings.Contains(repo.Label, ":") {
-			return Config{}, fmt.Errorf("repo %q: `label` %q must not contain %q", repo.Root, repo.Label, ":")
-		}
-		if previous, ok := rootByLabel[repo.Label]; ok {
-			return Config{}, fmt.Errorf("duplicate repo `label` %q used by %q and %q: set a distinct `label` on one of them", repo.Label, previous, repo.Root)
-		}
-		rootByLabel[repo.Label] = repo.Root
+	if err := normalizeRepos(cfg.Repos, "", true); err != nil {
+		return Config{}, err
+	}
+	if err := normalizeHosts(cfg.Hosts); err != nil {
+		return Config{}, err
 	}
 	for i := range cfg.Actions {
 		action := &cfg.Actions[i]
@@ -101,6 +101,75 @@ func Load(path string) (Config, error) {
 		}
 	}
 	return cfg, nil
+}
+
+// normalizeRepos cleans every root and fills in the labels the CLI names repos
+// by, so they have to stay unique and colon-free: `wd run LABEL:BRANCH ACTION`
+// splits on the first colon, and two repos sharing a label leave no selector able
+// to tell them apart. prefix scopes the errors to the host being read.
+//
+// expandTilde is off for a remote host's repos: those roots are interpreted on
+// that host, so resolving a leading `~` against the local home would name a
+// directory on the wrong machine.
+func normalizeRepos(repos []Repo, prefix string, expandTilde bool) error {
+	rootByLabel := map[string]string{}
+	for i := range repos {
+		repo := &repos[i]
+		root := strings.TrimSpace(repo.Root)
+		if root == "" {
+			return fmt.Errorf("%srepo %d: `root` is required", prefix, i)
+		}
+		if expandTilde {
+			root = expandHome(root)
+		}
+		repo.Root = filepath.Clean(root)
+		if repo.Label == "" {
+			repo.Label = filepath.Base(repo.Root)
+		}
+		if strings.Contains(repo.Label, ":") {
+			return fmt.Errorf("%srepo %q: `label` %q must not contain %q", prefix, repo.Root, repo.Label, ":")
+		}
+		if previous, ok := rootByLabel[repo.Label]; ok {
+			return fmt.Errorf("%sduplicate repo `label` %q used by %q and %q: set a distinct `label` on one of them", prefix, repo.Label, previous, repo.Root)
+		}
+		rootByLabel[repo.Label] = repo.Root
+	}
+	return nil
+}
+
+// normalizeHosts validates the remote hosts. A host `label` prefixes selectors
+// the same way a repo label does, so it carries the same uniqueness and
+// colon-free constraints, plus the reservation of `local`.
+func normalizeHosts(hosts []Host) error {
+	seen := map[string]bool{LocalHost: true}
+	for i := range hosts {
+		host := &hosts[i]
+		host.Label = strings.TrimSpace(host.Label)
+		if host.Label == "" {
+			return fmt.Errorf("host %d: `label` is required", i)
+		}
+		if strings.Contains(host.Label, ":") {
+			return fmt.Errorf("host %q: `label` must not contain %q", host.Label, ":")
+		}
+		if host.Label == LocalHost {
+			return fmt.Errorf("host %d: `label` %q is reserved for the local machine", i, LocalHost)
+		}
+		if seen[host.Label] {
+			return fmt.Errorf("duplicate host `label` %q: set a distinct `label` on one of them", host.Label)
+		}
+		seen[host.Label] = true
+		host.SSHTarget = strings.TrimSpace(host.SSHTarget)
+		if host.SSHTarget == "" {
+			return fmt.Errorf("host %q: `ssh_target` is required", host.Label)
+		}
+		if strings.ContainsAny(host.SSHTarget, " \t\n\r") {
+			return fmt.Errorf("host %q: `ssh_target` %q must not contain whitespace", host.Label, host.SSHTarget)
+		}
+		if err := normalizeRepos(host.Repos, fmt.Sprintf("host %q: ", host.Label), false); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // expandHome resolves a leading `~`, matching the convention the legacy loader

@@ -2,7 +2,6 @@ package launch
 
 import (
 	"errors"
-	"os/exec"
 	"reflect"
 	"strings"
 	"testing"
@@ -189,59 +188,4 @@ func TestCaptureRunsInWorkspaceDirectory(t *testing.T) {
 		t.Fatalf("cwd = %q, want /wt/topic", runner.calls[0].cwd)
 	}
 	wantArgv(t, runner.argv(0), []string{"git", "status"})
-}
-
-func TestShellQuote(t *testing.T) {
-	cases := map[string]string{
-		"plain":     "plain",
-		"two words": "'two words'",
-		"it's":      `'it'\''s'`,
-		"":          "''",
-	}
-	for in, want := range cases {
-		if got := shellQuote(in); got != want {
-			t.Fatalf("shellQuote(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
-// TestShellQuoteRoundTripsThroughBash is the property that matters: whatever
-// shellQuote returns, a real shell has to hand the original string back
-// unchanged. Golden strings cannot tell a working quote from a plausible one.
-func TestShellQuoteRoundTripsThroughBash(t *testing.T) {
-	bash, err := exec.LookPath("bash")
-	if err != nil {
-		t.Skipf("bash not available: %v", err)
-	}
-	inputs := []string{
-		"plain",
-		"two words",
-		"it's",
-		"",
-		"$HOME",
-		"${HOME}",
-		"$(id -u)",
-		"`date`",
-		`back\slash`,
-		`trailing\`,
-		`a"b`,
-		"*",
-		"a\tb",
-		"a\nb",
-		"semi;colon",
-		"pipe|and&more",
-		"~user",
-		"a'b'c",
-		"--flag=value",
-		"#hash",
-	}
-	for _, in := range inputs {
-		out, err := exec.Command(bash, "-c", "printf %s "+shellQuote(in)).Output()
-		if err != nil {
-			t.Fatalf("bash -c %q failed: %v", "printf %s "+shellQuote(in), err)
-		}
-		if string(out) != in {
-			t.Fatalf("shellQuote(%q) = %q, which bash expanded to %q", in, shellQuote(in), string(out))
-		}
-	}
 }

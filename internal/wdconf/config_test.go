@@ -8,10 +8,200 @@ import (
 	"testing"
 )
 
+// writeConfig drops body into a throwaway wd.toml and hands back its path, so a
+// test reads as the config it is about rather than as tempdir bookkeeping.
+func writeConfig(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "wd.toml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestLoadReadsRemoteHosts(t *testing.T) {
+	path := writeConfig(t, `
+[[hosts]]
+label = "asia"
+ssh_target = "me@asia"
+tmux = true
+
+[[hosts.repos]]
+root = "/home/me/Code/monorepo"
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(cfg.Hosts) != 1 {
+		t.Fatalf("hosts = %+v, want 1", cfg.Hosts)
+	}
+	host := cfg.Hosts[0]
+	if host.Label != "asia" || host.SSHTarget != "me@asia" || !host.TmuxEnabled {
+		t.Fatalf("host = %+v", host)
+	}
+	if len(host.Repos) != 1 || host.Repos[0].Label != "monorepo" {
+		t.Fatalf("host repos = %+v", host.Repos)
+	}
+}
+
+func TestLoadRejectsHostLabelCollidingWithLocal(t *testing.T) {
+	path := writeConfig(t, "[[hosts]]\nlabel = \"local\"\nssh_target = \"me@asia\"\n")
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load() error = nil, want a rejection of the reserved label `local`")
+	}
+	// The config never spells out the local machine, so "duplicate" would send the
+	// reader hunting for a second host that does not exist: say it is reserved.
+	if !strings.Contains(err.Error(), "reserved") {
+		t.Fatalf("Load() error = %v, want it to say the label is reserved", err)
+	}
+}
+
+func TestLoadRejectsHostWithoutSSHTarget(t *testing.T) {
+	path := writeConfig(t, "[[hosts]]\nlabel = \"asia\"\n")
+	if _, err := Load(path); err == nil {
+		t.Fatal("Load() error = nil, want an error about `ssh_target`")
+	}
+}
+
+func TestLoadRejectsHostWithoutLabel(t *testing.T) {
+	path := writeConfig(t, "[[hosts]]\nssh_target = \"me@asia\"\n")
+	if _, err := Load(path); err == nil {
+		t.Fatal("Load() error = nil, want an error about `label`")
+	}
+}
+
+func TestLoadRejectsDuplicateHostLabels(t *testing.T) {
+	path := writeConfig(t, `
+[[hosts]]
+label = "asia"
+ssh_target = "me@asia-1"
+
+[[hosts]]
+label = "asia"
+ssh_target = "me@asia-2"
+`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load() error = nil, want an error about the duplicate host label")
+	}
+	if !strings.Contains(err.Error(), "asia") {
+		t.Fatalf("Load() error = %v, want it to name the offending label", err)
+	}
+}
+
+func TestLoadRejectsHostLabelContainingColon(t *testing.T) {
+	// A host label prefixes a selector, and `wd run HOST:REPO:BRANCH` splits on
+	// colons, so a colon inside the label leaves the host unaddressable.
+	path := writeConfig(t, "[[hosts]]\nlabel = \"asia:1\"\nssh_target = \"me@asia\"\n")
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load() error = nil, want an error about the colon in `label`")
+	}
+	if !strings.Contains(err.Error(), "asia:1") {
+		t.Fatalf("Load() error = %v, want it to name the offending label", err)
+	}
+}
+
+func TestLoadRejectsSSHTargetWithWhitespace(t *testing.T) {
+	// The target is interpolated into a rendered ssh command line, so smuggling
+	// extra words through it would append arguments nobody configured.
+	path := writeConfig(t, "[[hosts]]\nlabel = \"asia\"\nssh_target = \"me@asia -o ProxyCommand=x\"\n")
+	if _, err := Load(path); err == nil {
+		t.Fatal("Load() error = nil, want an error about whitespace in `ssh_target`")
+	}
+}
+
+func TestLoadKeepsTildeInHostRepoRoot(t *testing.T) {
+	// A host root is resolved on the remote machine, so expanding `~` against the
+	// local home would point the collector at a path that need not exist there.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	path := writeConfig(t, `
+[[hosts]]
+label = "asia"
+ssh_target = "me@asia"
+
+[[hosts.repos]]
+root = "~/Code/x"
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(cfg.Hosts) != 1 || len(cfg.Hosts[0].Repos) != 1 {
+		t.Fatalf("hosts = %+v, want one host with one repo", cfg.Hosts)
+	}
+	repo := cfg.Hosts[0].Repos[0]
+	if repo.Root != "~/Code/x" {
+		t.Fatalf("root = %q, want it preserved verbatim for the remote machine", repo.Root)
+	}
+	if repo.Label != "x" {
+		t.Fatalf("label = %q, want %q", repo.Label, "x")
+	}
+}
+
+func TestLoadRejectsDuplicateRepoLabelsWithinHost(t *testing.T) {
+	path := writeConfig(t, `
+[[hosts]]
+label = "asia"
+ssh_target = "me@asia"
+
+[[hosts.repos]]
+root = "/work/a/api"
+
+[[hosts.repos]]
+root = "/work/b/api"
+`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load() error = nil, want an error about the duplicate label")
+	}
+	for _, want := range []string{"asia", "api", "/work/a/api", "/work/b/api"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("Load() error = %v, want it to mention %q", err, want)
+		}
+	}
+}
+
+func TestLoadAcceptsTheSameRepoLabelOnDifferentHosts(t *testing.T) {
+	// Uniqueness is per host: the same repo cloned on two machines is the normal
+	// case, and the host prefix is what disambiguates it.
+	path := writeConfig(t, `
+[[repos]]
+root = "/home/me/api"
+
+[[hosts]]
+label = "asia"
+ssh_target = "me@asia"
+
+[[hosts.repos]]
+root = "/srv/api"
+
+[[hosts]]
+label = "eu"
+ssh_target = "me@eu"
+
+[[hosts.repos]]
+root = "/srv/api"
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(cfg.Hosts) != 2 {
+		t.Fatalf("hosts = %+v, want 2", cfg.Hosts)
+	}
+	for _, host := range cfg.Hosts {
+		if len(host.Repos) != 1 || host.Repos[0].Label != "api" {
+			t.Fatalf("host %q repos = %+v, want one labelled api", host.Label, host.Repos)
+		}
+	}
+}
+
 func TestLoadReadsReposAndActions(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "wd.toml")
-	body := `
+	path := writeConfig(t, `
 [[repos]]
 root = "/home/me/code/repo"
 
@@ -21,10 +211,7 @@ label = "launch agent"
 needs = ["worktree"]
 where = "pane"
 argv = ["claude"]
-`
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
+`)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
@@ -42,36 +229,26 @@ argv = ["claude"]
 }
 
 func TestLoadRejectsUnknownWhere(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "wd.toml")
-	body := `
+	path := writeConfig(t, `
 [[actions]]
 id = "bad"
 label = "bad"
 where = "sideways"
 argv = ["true"]
-`
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
+`)
 	if _, err := Load(path); err == nil {
 		t.Fatal("Load() error = nil, want an error about `where`")
 	}
 }
 
 func TestLoadRejectsEmptyArgv(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "wd.toml")
-	body := `
+	path := writeConfig(t, `
 [[actions]]
 id = "empty"
 label = "empty"
 where = "pane"
 argv = []
-`
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
+`)
 	if _, err := Load(path); err == nil {
 		t.Fatal("Load() error = nil, want an error about `argv`")
 	}
@@ -80,19 +257,14 @@ argv = []
 func TestLoadExpandsTildeInRepoRoot(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	dir := t.TempDir()
-	path := filepath.Join(dir, "wd.toml")
-	body := `
+	path := writeConfig(t, `
 [[repos]]
 root = "~/Code/workdash"
 
 [[repos]]
 root = "~"
 label = "home"
-`
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
+`)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
@@ -112,9 +284,7 @@ label = "home"
 }
 
 func TestLoadNormalizesTrailingSlashInRepoRoot(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "wd.toml")
-	body := `
+	path := writeConfig(t, `
 [[repos]]
 root = "/x/repo/"
 label = "slashed"
@@ -122,10 +292,7 @@ label = "slashed"
 [[repos]]
 root = "/x/./repo"
 label = "clean"
-`
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
+`)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
@@ -142,18 +309,13 @@ label = "clean"
 }
 
 func TestLoadRejectsDuplicateRepoLabels(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "wd.toml")
-	body := `
+	path := writeConfig(t, `
 [[repos]]
 root = "/work/a/api"
 
 [[repos]]
 root = "/work/b/api"
-`
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
+`)
 	_, err := Load(path)
 	if err == nil {
 		t.Fatal("Load() error = nil, want an error about the duplicate label")
@@ -166,9 +328,7 @@ root = "/work/b/api"
 }
 
 func TestLoadAcceptsDistinctExplicitLabelsForSameBase(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "wd.toml")
-	body := `
+	path := writeConfig(t, `
 [[repos]]
 root = "/work/a/api"
 label = "a-api"
@@ -176,10 +336,7 @@ label = "a-api"
 [[repos]]
 root = "/work/b/api"
 label = "b-api"
-`
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
+`)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
@@ -190,16 +347,11 @@ label = "b-api"
 }
 
 func TestLoadRejectsLabelContainingColon(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "wd.toml")
-	body := `
+	path := writeConfig(t, `
 [[repos]]
 root = "/work/api"
 label = "api:main"
-`
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
+`)
 	_, err := Load(path)
 	if err == nil {
 		t.Fatal("Load() error = nil, want an error about the colon in `label`")
@@ -210,18 +362,13 @@ label = "api:main"
 }
 
 func TestLoadRejectsUnknownFacetInNeeds(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "wd.toml")
-	body := `
+	path := writeConfig(t, `
 [[actions]]
 id = "typo"
 label = "typo"
 needs = ["worktee"]
 argv = ["true"]
-`
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
+`)
 	_, err := Load(path)
 	if err == nil {
 		t.Fatal("Load() error = nil, want an error about an unknown facet in `needs`")
@@ -232,18 +379,13 @@ argv = ["true"]
 }
 
 func TestLoadRejectsNegatedUnknownFacetInNeeds(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "wd.toml")
-	body := `
+	path := writeConfig(t, `
 [[actions]]
 id = "typo"
 label = "typo"
 needs = ["!worktee"]
 argv = ["true"]
-`
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
+`)
 	if _, err := Load(path); err == nil {
 		t.Fatal("Load() error = nil, want an error about an unknown facet in `needs`")
 	}
@@ -251,18 +393,13 @@ argv = ["true"]
 
 func TestLoadRejectsEmptyFacetInNeeds(t *testing.T) {
 	for _, needs := range []string{`[""]`, `["!"]`} {
-		dir := t.TempDir()
-		path := filepath.Join(dir, "wd.toml")
-		body := `
+		path := writeConfig(t, `
 [[actions]]
 id = "blank"
 label = "blank"
-needs = ` + needs + `
+needs = `+needs+`
 argv = ["true"]
-`
-		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
+`)
 		if _, err := Load(path); err == nil {
 			t.Fatalf("Load() with needs = %s error = nil, want an error about `needs`", needs)
 		}
@@ -270,9 +407,7 @@ argv = ["true"]
 }
 
 func TestLoadAcceptsKnownAndNegatedFacetsInNeeds(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "wd.toml")
-	body := `
+	path := writeConfig(t, `
 [[actions]]
 id = "positive"
 label = "positive"
@@ -284,10 +419,7 @@ id = "negative"
 label = "negative"
 needs = ["!worktree", "!session", "!pr"]
 argv = ["true"]
-`
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
+`)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
@@ -301,17 +433,12 @@ argv = ["true"]
 }
 
 func TestLoadDefaultsMissingWhereToPane(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "wd.toml")
-	body := `
+	path := writeConfig(t, `
 [[actions]]
 id = "bare"
 label = "bare"
 argv = ["true"]
-`
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
+`)
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)

@@ -11,9 +11,9 @@ package launch
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/Khady/workdash/internal/action"
+	"github.com/Khady/workdash/internal/shellquote"
 )
 
 // Runner executes a command somewhere. Declared here rather than imported so
@@ -96,16 +96,5 @@ func commandArgv(resolved action.Resolved) []string {
 	if !resolved.Shell {
 		return resolved.Argv
 	}
-	quoted := make([]string, 0, len(resolved.Argv))
-	for _, arg := range resolved.Argv {
-		quoted = append(quoted, shellQuote(arg))
-	}
-	return []string{"bash", "-ic", strings.Join(quoted, " ")}
-}
-
-func shellQuote(text string) string {
-	if text != "" && !strings.ContainsAny(text, " \t\n'\"\\$`*?[]|&;<>(){}#~=") {
-		return text
-	}
-	return "'" + strings.ReplaceAll(text, "'", `'\''`) + "'"
+	return []string{"bash", "-ic", shellquote.Join(resolved.Argv)}
 }

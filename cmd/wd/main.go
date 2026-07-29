@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/Khady/workdash/internal/action"
 	"github.com/Khady/workdash/internal/collect"
@@ -127,23 +128,82 @@ func actionIDs(resolved []action.Resolved) []string {
 	return ids
 }
 
+// hostResult is one host's contribution. Errors are per host so an unreachable
+// machine degrades its own section of the list and nothing else.
+type hostResult struct {
+	host     string
+	git      []workspace.GitRecord
+	sessions []workspace.SessionRecord
+	err      error
+}
+
+// hostsFromConfig puts the local machine first. It is implied rather than
+// configured, which is why `local` is a reserved label.
+func hostsFromConfig(cfg wdconf.Config) []collect.Host {
+	hosts := []collect.Host{{
+		Label:       wdconf.LocalHost,
+		Repos:       toCollectRepos(cfg.Repos),
+		TmuxEnabled: true,
+	}}
+	for _, host := range cfg.Hosts {
+		hosts = append(hosts, collect.Host{
+			Label:       host.Label,
+			SSHTarget:   host.SSHTarget,
+			Repos:       toCollectRepos(host.Repos),
+			TmuxEnabled: host.TmuxEnabled,
+		})
+	}
+	return hosts
+}
+
+func toCollectRepos(repos []wdconf.Repo) []collect.Repo {
+	out := make([]collect.Repo, 0, len(repos))
+	for _, repo := range repos {
+		out = append(out, collect.Repo{Root: repo.Root, Label: repo.Label})
+	}
+	return out
+}
+
+// loadSnapshot collects every host concurrently. A slow or unreachable host
+// costs its own latency, not the sum of all of them.
 func loadSnapshot(cfg wdconf.Config) (workspace.Snapshot, []string) {
-	runner := collect.LocalRunner{}
+	hosts := hostsFromConfig(cfg)
+	results := make([]hostResult, len(hosts))
+	var wg sync.WaitGroup
+	for i, host := range hosts {
+		wg.Add(1)
+		go func(i int, host collect.Host) {
+			defer wg.Done()
+			git, sessions, err := collect.CollectHost(transportFor(host), host)
+			results[i] = hostResult{host: host.Label, git: git, sessions: sessions, err: err}
+		}(i, host)
+	}
+	wg.Wait()
+	return mergeHostResults(results)
+}
+
+// transportFor is the whole local/remote distinction: an empty ssh target runs
+// sections directly, anything else runs the entire plan in one ssh.
+func transportFor(host collect.Host) collect.Transport {
+	if host.SSHTarget == "" {
+		return collect.Local{Runner: collect.LocalRunner{}}
+	}
+	return collect.SSH{Runner: collect.LocalRunner{}, Target: host.SSHTarget}
+}
+
+func mergeHostResults(results []hostResult) (workspace.Snapshot, []string) {
+	git := []workspace.GitRecord{}
+	sessions := []workspace.SessionRecord{}
 	warnings := []string{}
-	records := []workspace.GitRecord{}
-	for _, repo := range cfg.Repos {
-		got, err := collect.Git(runner, "local", collect.Repo{Root: repo.Root, Label: repo.Label})
-		if err != nil {
-			warnings = append(warnings, fmt.Sprintf("%s: %v", repo.Label, err))
+	for _, result := range results {
+		if result.err != nil {
+			warnings = append(warnings, fmt.Sprintf("%s: %v", result.host, result.err))
 			continue
 		}
-		records = append(records, got...)
+		git = append(git, result.git...)
+		sessions = append(sessions, result.sessions...)
 	}
-	sessions, err := collect.Tmux(runner, "local")
-	if err != nil {
-		warnings = append(warnings, fmt.Sprintf("tmux: %v", err))
-	}
-	return workspace.Index(records, sessions), warnings
+	return workspace.Index(git, sessions), warnings
 }
 
 func printSnapshot(out io.Writer, snap workspace.Snapshot) {

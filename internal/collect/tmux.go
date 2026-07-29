@@ -25,6 +25,12 @@ func Tmux(runner Runner, host string) ([]workspace.SessionRecord, error) {
 		}
 		return nil, err
 	}
+	return parseSessions(out, host), nil
+}
+
+// parseSessions reads `tmux list-sessions -F`. Fields are tab separated because
+// session names routinely contain spaces.
+func parseSessions(out, host string) []workspace.SessionRecord {
 	records := []workspace.SessionRecord{}
 	for _, line := range strings.Split(out, "\n") {
 		fields := strings.Split(strings.TrimRight(line, "\r"), "\t")
@@ -42,7 +48,7 @@ func Tmux(runner Runner, host string) ([]workspace.SessionRecord, error) {
 			},
 		})
 	}
-	return records, nil
+	return records
 }
 
 // noServer reports whether a failed `tmux list-sessions` means only that there

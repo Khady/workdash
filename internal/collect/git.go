@@ -29,8 +29,15 @@ func Git(runner Runner, host string, repo Repo) ([]workspace.GitRecord, error) {
 	if err != nil {
 		return nil, err
 	}
-	records := parseWorktrees(worktreeOut, host, repo)
-	for _, branch := range strings.Split(branchOut, "\n") {
+	return append(parseWorktrees(worktreeOut, host, repo), parseBranches(branchOut, host, repo)...), nil
+}
+
+// parseBranches turns the branch list into records with no worktree facet. A
+// branch that exists but is checked out nowhere is still a workspace worth
+// acting on — it is exactly the state where "create the worktree" belongs.
+func parseBranches(out, host string, repo Repo) []workspace.GitRecord {
+	records := []workspace.GitRecord{}
+	for _, branch := range strings.Split(out, "\n") {
 		branch = strings.TrimSpace(branch)
 		if branch == "" {
 			continue
@@ -40,7 +47,7 @@ func Git(runner Runner, host string, repo Repo) ([]workspace.GitRecord, error) {
 			RepoLabel: repo.Label,
 		})
 	}
-	return records, nil
+	return records
 }
 
 // parseWorktrees reads `git worktree list --porcelain`. A detached worktree
