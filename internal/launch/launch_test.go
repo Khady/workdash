@@ -265,3 +265,35 @@ func TestAttachRefusesWithoutASession(t *testing.T) {
 		t.Fatalf("calls = %q, want none", runner.calls)
 	}
 }
+
+// A GUI app is neither a pane nor something to wait for. GUI emacs stays in the
+// foreground until you close it, and a browser handed a URL should never make the
+// picker wait — so "start it and forget it" is its own verb.
+func TestBackgroundDetachesAndDoesNotCapture(t *testing.T) {
+	runner := &recordRunner{}
+	tmux := Tmux{Runner: runner, InsideTmux: true, Detach: func(cwd string, argv []string) error {
+		runner.calls = append(runner.calls, recordedCall{cwd: cwd, argv: argv})
+		return nil
+	}}
+	out, err := tmux.Background(action.Resolved{ID: "open-pr", Name: "topic",
+		Argv: []string{"firefox", "https://example.com/x"}, Cwd: "/wt/topic"})
+	if err != nil {
+		t.Fatalf("Background() error = %v", err)
+	}
+	wantArgv(t, runner.argv(0), []string{"firefox", "https://example.com/x"})
+	if runner.calls[0].cwd != "/wt/topic" {
+		t.Fatalf("cwd = %q, want /wt/topic", runner.calls[0].cwd)
+	}
+	if !strings.Contains(out, "open-pr") {
+		t.Fatalf("message = %q, want it to name the action", out)
+	}
+}
+
+func TestBackgroundReportsAFailureToStart(t *testing.T) {
+	tmux := Tmux{Runner: &recordRunner{}, Detach: func(string, []string) error {
+		return errors.New("exec: \"firefox\": executable file not found in $PATH")
+	}}
+	if _, err := tmux.Background(action.Resolved{ID: "open-pr", Argv: []string{"firefox"}}); err == nil {
+		t.Fatal("Background() error = nil, want the start failure")
+	}
+}

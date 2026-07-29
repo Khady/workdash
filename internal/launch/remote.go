@@ -96,6 +96,14 @@ func (r Remote) attachArgv(resolved action.Resolved, session string) []string {
 		shellquote.Join([]string{"tmux", "attach", "-t" + exactTarget(session)}))
 }
 
+// Background is a local-desktop idea: the programs that need it are GUI apps on
+// the machine in front of you. Rather than guess at something plausible over ssh,
+// say what to do instead.
+func (r Remote) Background(resolved action.Resolved) (string, error) {
+	return "", fmt.Errorf("action %q cannot run in the background on %s: add `run_on = \"local\"` if it is a desktop program",
+		resolved.ID, resolved.Host)
+}
+
 func (r Remote) Capture(resolved action.Resolved) (string, error) {
 	command := shellquote.Join(commandArgv(resolved))
 	if resolved.Cwd != "" {

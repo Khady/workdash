@@ -11,6 +11,8 @@ package launch
 
 import (
 	"fmt"
+	"os/exec"
+	"syscall"
 
 	"github.com/Khady/workdash/internal/action"
 	"github.com/Khady/workdash/internal/shellquote"
@@ -31,11 +33,42 @@ type Executor interface {
 	// command to run, and it is what a dashboard built around focus rather than
 	// launch mostly does.
 	Attach(action.Resolved) (string, error)
+	// Background starts a command and forgets it. GUI programs need this: emacs
+	// in a window stays in the foreground until closed, and a browser handed a URL
+	// must never make the caller wait.
+	Background(action.Resolved) (string, error)
 }
 
 type Tmux struct {
 	Runner     Runner
 	InsideTmux bool
+	// Detach starts a command without waiting for it. Injected so the background
+	// verb is testable without spawning real processes; nil means the real one.
+	Detach func(cwd string, argv []string) error
+}
+
+func (t Tmux) Background(resolved action.Resolved) (string, error) {
+	detach := t.Detach
+	if detach == nil {
+		detach = detachProcess
+	}
+	if err := detach(resolved.Cwd, resolved.Argv); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("started %s in the background", resolved.ID), nil
+}
+
+// detachProcess puts the child in its own session so it survives this process and
+// never shares its terminal — a GUI app has no business writing to the popup that
+// launched it.
+func detachProcess(cwd string, argv []string) error {
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Dir = cwd
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	return cmd.Process.Release()
 }
 
 func (t Tmux) Pane(resolved action.Resolved) (string, error) {

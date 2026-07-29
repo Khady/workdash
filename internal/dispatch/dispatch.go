@@ -57,6 +57,8 @@ func Execute(executor launch.Executor, resolved action.Resolved) (string, error)
 		return executor.Capture(resolved)
 	case wdconf.WhereAttach:
 		return executor.Attach(resolved)
+	case wdconf.WhereBackground:
+		return executor.Background(resolved)
 	}
 	return executor.Pane(resolved)
 }

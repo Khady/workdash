@@ -18,6 +18,9 @@ const (
 	WhereCapture = "capture"
 	// WhereAttach connects to a session that already exists. It takes no argv.
 	WhereAttach = "attach"
+	// WhereBackground starts a command detached and does not wait for it, which is
+	// what GUI programs need.
+	WhereBackground = "background"
 	// RunOnLocal runs the command on this machine even when the workspace lives on
 	// another one. Opening a pull request in a browser is about the workspace but
 	// belongs on the laptop, which `hosts` cannot express: `hosts` says which
@@ -170,7 +173,7 @@ func Load(path string) (Config, error) {
 			action.Where = WherePane
 		}
 		switch action.Where {
-		case WherePane, WhereCapture:
+		case WherePane, WhereCapture, WhereBackground:
 		case WhereAttach:
 			// Attaching without a session is meaningless, so the facet is implied
 			// rather than something every attach action has to remember.
@@ -178,8 +181,8 @@ func Load(path string) (Config, error) {
 				action.Needs = append(action.Needs, workspace.FacetSession)
 			}
 		default:
-			return Config{}, fmt.Errorf("action %q: `where` must be %q, %q or %q",
-				action.ID, WherePane, WhereCapture, WhereAttach)
+			return Config{}, fmt.Errorf("action %q: `where` must be one of %q, %q, %q, %q",
+				action.ID, WherePane, WhereCapture, WhereAttach, WhereBackground)
 		}
 		for _, need := range action.Needs {
 			if err := checkFacet(action.ID, need); err != nil {

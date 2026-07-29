@@ -402,8 +402,8 @@ func (a *app) runAction(resolved action.Resolved) {
 				a.showOutput(actionLabel(resolved), out)
 				return
 			}
-			// A pane action just created a session or a window, so the facets on
-			// screen are now one step behind reality.
+			// A pane created a session or a window and an attach changed who is
+			// looking at one, so the facets on screen are now one step behind.
 			a.message = out
 			a.load()
 		})

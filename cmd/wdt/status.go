@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Khady/workdash/internal/action"
+	"github.com/Khady/workdash/internal/wdconf"
 )
 
 // statusLine is the top right corner: how much of the list you are looking at,
@@ -58,9 +59,20 @@ func actionLabel(resolved action.Resolved) string {
 // the command is the part you can check before pressing Enter on something like
 // gwt-delete, which does not ask twice.
 func actionDetail(resolved action.Resolved) string {
-	parts := []string{resolved.Where, strings.Join(resolved.Argv, " ")}
+	parts := []string{resolved.Where}
+	if command := strings.Join(resolved.Argv, " "); command != "" {
+		parts = append(parts, command)
+	}
 	if resolved.Shell {
 		parts = append(parts, "shell")
+	}
+	// An attach has no command and no directory: it moves you to a session that
+	// already exists, so the session name is the only thing worth showing.
+	if resolved.Where == wdconf.WhereAttach {
+		if resolved.Session != "" {
+			parts = append(parts, "session "+resolved.Session)
+		}
+		return strings.Join(parts, "  ")
 	}
 	if resolved.Cwd != "" {
 		parts = append(parts, "in "+resolved.Cwd)

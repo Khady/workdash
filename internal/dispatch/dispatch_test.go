@@ -10,10 +10,16 @@ import (
 )
 
 type fakeExecutor struct {
-	pane    []action.Resolved
-	capture []action.Resolved
-	attach  []action.Resolved
-	err     error
+	pane       []action.Resolved
+	capture    []action.Resolved
+	attach     []action.Resolved
+	background []action.Resolved
+	err        error
+}
+
+func (f *fakeExecutor) Background(resolved action.Resolved) (string, error) {
+	f.background = append(f.background, resolved)
+	return "backgrounded", f.err
 }
 
 func (f *fakeExecutor) Attach(resolved action.Resolved) (string, error) {
@@ -117,5 +123,17 @@ func TestHostHonoursRunOnLocal(t *testing.T) {
 func TestExecutorForRejectsUnknownHost(t *testing.T) {
 	if _, err := ExecutorFor(wdconf.Config{}, "nowhere"); err == nil {
 		t.Fatal("ExecutorFor() error = nil, want an error naming the unknown host")
+	}
+}
+
+// A GUI program routed to capture would block the caller until it exits.
+func TestExecuteRoutesBackgroundToTheBackgroundVerb(t *testing.T) {
+	executor := &fakeExecutor{}
+	if _, err := Execute(executor, action.Resolved{ID: "open-pr", Where: wdconf.WhereBackground}); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if len(executor.background) != 1 || len(executor.capture) != 0 || len(executor.pane) != 0 {
+		t.Fatalf("routing = background %d capture %d pane %d, want background only",
+			len(executor.background), len(executor.capture), len(executor.pane))
 	}
 }

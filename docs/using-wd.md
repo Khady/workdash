@@ -9,6 +9,7 @@ this way — the facet model, the two verbs, what got deleted and what that boug
 | Path | What it is |
 |---|---|
 | `~/.local/bin/wd` | the binary |
+| `~/.local/bin/wdt` | the TUI — grouped, coloured, recency-ordered |
 | `~/.local/bin/wd-pick` | fzf picker: workspace → action → run |
 | `~/.config/workdash/wd.toml` | config for `wd`, generated from `config.toml` |
 | `~/.tmux.conf` | one line: `bind w display-popup -E -w 80% -h 80% 'wd-pick'` |
@@ -24,8 +25,10 @@ go build -o ~/.local/bin/wd ./cmd/wd
 
 ## The normal way in
 
-**`prefix + w`** opens a tmux popup. Pick a workspace, pick an action, it runs.
-That is the whole loop.
+**`prefix + w`** opens the TUI in a tmux popup: type to filter, `Enter` for the
+action menu, `Ctrl+R` to reload, `?` for help, `q` to quit.
+
+**`prefix + W`** opens the fzf picker instead, if you prefer it.
 
 The popup is `wd-pick`, which is three `wd` calls piped through `fzf` — worth
 knowing because it means nothing about the picker is privileged. Anything it does,
@@ -78,7 +81,7 @@ wd: "monorepo:develop" is ambiguous: asia:monorepo:develop, local:monorepo:devel
 
 ## Where things run
 
-An action's `where` is `pane`, `capture` or `attach`.
+An action's `where` is `pane`, `capture`, `attach` or `background`.
 
 - **`pane`** goes into a tmux window: shells, editors, agents. Inside tmux you get
   a new window; outside it, a detached session and the command to attach. If the
@@ -88,6 +91,12 @@ An action's `where` is `pane`, `capture` or `attach`.
   It takes no `argv` and implies `needs = ["session"]`. Locally it switches the
   client; for a remote workspace it opens a local window connected to the remote
   session. This is the verb for "take me to the work that is already running".
+
+- **`background`** starts the command detached and does not wait: GUI programs.
+  A browser or `emacs` under `capture` would make the picker wait until you closed
+  it. Remote workspaces reject this verb and tell you to add `run_on = "local"`,
+  since the programs that need it are desktop programs on the machine in front of
+  you.
 
 `run_on = "local"` runs the command on this machine even when the workspace is
 remote. That is different from `hosts`, which says which *workspaces* an action
@@ -171,15 +180,12 @@ can tell "nothing to show" from "everything is broken".
 - **`gwt-delete` runs immediately, with no confirmation.** The old TUI prompted;
   the CLI has no prompt layer yet. It is in the config because you had it, but it
   is the one action to be careful with in a popup.
-- **`emacs` as a `capture` action blocks** until you close it, because GUI emacs
-  stays in the foreground. `["emacsclient", "-c", "-a", "", "{path}"]` returns
-  immediately and is the better spelling.
 - **No remote GUI editors.** `code --remote` and `zed ssh://` from `config.toml`
   did not carry over: they need an ssh target inside the action language. Terminal
   editors are unaffected, since a remote `pane` runs where the code is.
-- **No grouping or colour yet.** `wd ls` sorts by recency, but it does not group
-  by kind or colour anything the way the old TUI did. That is the TUI's job and
-  the TUI does not exist yet.
+- **`xdg-open` guesses from its environment.** Inside a tmux popup that is the
+  tmux *server's* environment, not your session's, which is why the browser action
+  names `firefox` explicitly instead.
 - **A window opened inside your current session is invisible to `wd ls`.** The
   collector lists sessions, not windows, so a window created for workspace B while
   you sit in session A is not reported as a facet of B.
