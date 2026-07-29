@@ -141,3 +141,32 @@ func TestGitBareBlockDoesNotConsumeMainSlot(t *testing.T) {
 		t.Fatalf("topic worktree = %+v, want a non-main worktree", wt)
 	}
 }
+
+// The forms below are all real: scp-style ssh with and without the .git suffix,
+// https with and without it, and the ssh:// URL form ahrefs hosts use. Anything
+// unrecognised must come back empty rather than half-parsed — a repo with no
+// remote at all prints nothing and exits non-zero, which the transport files as
+// an empty section.
+func TestParseFullName(t *testing.T) {
+	tests := []struct {
+		name string
+		out  string
+		want string
+	}{
+		{"scp style", "git@github.com:Khady/workdash.git", "Khady/workdash"},
+		{"scp style without suffix", "git@github.com:Khady/workdash", "Khady/workdash"},
+		{"https", "https://github.com/ocaml/dune.git", "ocaml/dune"},
+		{"https without suffix", "https://github.com/ocaml/dune", "ocaml/dune"},
+		{"ssh url", "ssh://git@github.com/ahrefs/monorepo.git", "ahrefs/monorepo"},
+		{"trailing newline", "git@github.com:Khady/workdash.git\n", "Khady/workdash"},
+		{"no remote", "", ""},
+		{"not a url", "origin", ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := parseFullName(test.out); got != test.want {
+				t.Fatalf("parseFullName(%q) = %q, want %q", test.out, got, test.want)
+			}
+		})
+	}
+}

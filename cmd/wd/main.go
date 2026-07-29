@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Khady/workdash/internal/action"
 	"github.com/Khady/workdash/internal/collect"
@@ -19,6 +20,10 @@ import (
 	"github.com/Khady/workdash/internal/wdconf"
 	"github.com/Khady/workdash/internal/workspace"
 )
+
+// prCacheTTL is short enough that a PR opened a minute ago shows up, and long
+// enough that a burst of commands pays for one fetch.
+const prCacheTTL = 90 * time.Second
 
 const usage = `usage:
   wd ls [--json]              list workspaces
@@ -203,8 +208,18 @@ func loadSnapshot(cfg wdconf.Config) (workspace.Snapshot, []string) {
 			results[i] = hostResult{host: host.Label, git: git, sessions: sessions, err: err}
 		}(i, host)
 	}
+	// GitHub is the only network source here, so it goes through a short-lived
+	// cache: repeated `wd ls` should cost milliseconds like the git and tmux
+	// facts, not a round trip to api.github.com.
+	cache := collect.PRCache{Dir: collect.DefaultPRCacheDir(), TTL: prCacheTTL, Now: time.Now}
+	prs, prWarnings := collectPRs(cfg.GHAccounts(), func(account string) ([]workspace.PRRecord, error) {
+		return cache.Get(account, func(account string) ([]workspace.PRRecord, error) {
+			return collect.PRs(collect.LocalRunner{}, account)
+		})
+	})
 	wg.Wait()
-	return mergeHostResults(results)
+	snap, warnings := mergeHostResults(results)
+	return workspace.AttachPRs(snap, prs), append(warnings, prWarnings...)
 }
 
 // transportFor is the whole local/remote distinction: an empty ssh target runs
@@ -214,6 +229,45 @@ func transportFor(host collect.Host) collect.Transport {
 		return collect.Local{Runner: collect.LocalRunner{}}
 	}
 	return collect.SSH{Runner: collect.LocalRunner{}, Target: host.SSHTarget}
+}
+
+// collectPRs fetches once per account rather than once per repo, concurrently,
+// and turns each failure into a warning. With no accounts configured it still
+// makes one call so gh's own active account is used.
+func collectPRs(accounts []string, fetch func(string) ([]workspace.PRRecord, error)) ([]workspace.PRRecord, []string) {
+	if len(accounts) == 0 {
+		accounts = []string{""}
+	}
+	type result struct {
+		account string
+		records []workspace.PRRecord
+		err     error
+	}
+	results := make([]result, len(accounts))
+	var wg sync.WaitGroup
+	for i, account := range accounts {
+		wg.Add(1)
+		go func(i int, account string) {
+			defer wg.Done()
+			records, err := fetch(account)
+			results[i] = result{account: account, records: records, err: err}
+		}(i, account)
+	}
+	wg.Wait()
+	records := []workspace.PRRecord{}
+	warnings := []string{}
+	for _, item := range results {
+		if item.err != nil {
+			label := item.account
+			if label == "" {
+				label = "github"
+			}
+			warnings = append(warnings, fmt.Sprintf("%s: %v", label, item.err))
+			continue
+		}
+		records = append(records, item.records...)
+	}
+	return records, warnings
 }
 
 func mergeHostResults(results []hostResult) (workspace.Snapshot, []string) {

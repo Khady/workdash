@@ -18,7 +18,47 @@ var (
 	// name, so a branch sharing a name with a tag comes back as "heads/v1.0"
 	// and never merges with its own worktree.
 	branchArgv = []string{"git", "for-each-ref", "--format=%(refname:lstrip=2)", "refs/heads"}
+	// The remote is what gives a repo its "owner/name", which is the only thing a
+	// pull request can be matched on: GitHub knows nothing about local paths.
+	remoteArgv = []string{"git", "remote", "get-url", "origin"}
 )
+
+// parseFullName turns a remote URL into "owner/name", or "" when it cannot.
+//
+// Remotes come in several shapes for the same repository — scp-style ssh,
+// ssh:// with userinfo, https, each with or without the .git suffix — and they
+// all have to reduce to the one form GitHub reports, or a workspace and its pull
+// request never meet. Anything else is reported as unknown rather than guessed
+// at: a repo with no origin prints nothing and exits non-zero, which the
+// transport files as an empty section, and a wrong full name would attach some
+// other repository's pull requests.
+func parseFullName(out string) string {
+	url := strings.TrimSpace(out)
+	if url == "" {
+		return ""
+	}
+	url = strings.TrimSuffix(url, ".git")
+	switch {
+	case strings.Contains(url, "://"):
+		// scheme://[user@]host/owner/name
+		_, rest, _ := strings.Cut(url, "://")
+		host, path, ok := strings.Cut(rest, "/")
+		if !ok || host == "" {
+			return ""
+		}
+		url = path
+	case strings.Contains(url, ":"):
+		// user@host:owner/name
+		_, url, _ = strings.Cut(url, ":")
+	default:
+		return ""
+	}
+	owner, name, ok := strings.Cut(strings.Trim(url, "/"), "/")
+	if !ok || owner == "" || name == "" || strings.Contains(name, "/") {
+		return ""
+	}
+	return owner + "/" + name
+}
 
 func Git(runner Runner, host string, repo Repo) ([]workspace.GitRecord, error) {
 	worktreeOut, err := runner.Run(repo.Root, worktreeArgv)

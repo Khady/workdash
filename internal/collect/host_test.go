@@ -77,6 +77,58 @@ func TestCollectHostKeepsGoodReposWhenOneSectionIsEmpty(t *testing.T) {
 	}
 }
 
+// Whichever record wins the merge has to carry the full name, because which one
+// creates the workspace is not knowable: a branch with no worktree is created by
+// the branch record, one that is checked out by the worktree record.
+func TestCollectHostStampsRepoFullNameOnEveryRecord(t *testing.T) {
+	host := Host{Label: "asia", Repos: []Repo{{Root: "/srv/a", Label: "a"}}}
+	transport := fakeTransport{out: map[string]string{
+		worktreeKey(0): "worktree /srv/a\nHEAD abc\nbranch refs/heads/main\n",
+		branchKey(0):   "main\nidle\n",
+		remoteKey(0):   "git@github.com:Khady/workdash.git\n",
+	}}
+	git, _, err := CollectHost(transport, host)
+	if err != nil {
+		t.Fatalf("CollectHost() error = %v", err)
+	}
+	if len(git) != 3 {
+		t.Fatalf("records = %d %+v, want one worktree and two branch records", len(git), git)
+	}
+	for _, record := range git {
+		if record.RepoFullName != "Khady/workdash" {
+			t.Fatalf("record %+v full name = %q, want Khady/workdash", record.ID, record.RepoFullName)
+		}
+	}
+	snap := workspace.Index(git, nil)
+	for _, ws := range snap.Workspaces {
+		if ws.RepoFullName != "Khady/workdash" {
+			t.Fatalf("workspace %s full name = %q, want Khady/workdash", ws.ID, ws.RepoFullName)
+		}
+	}
+}
+
+// A repo with no remote is still a perfectly usable workspace; it just cannot
+// ever match a pull request.
+func TestCollectHostToleratesARepoWithNoRemote(t *testing.T) {
+	host := Host{Label: "asia", Repos: []Repo{{Root: "/srv/a", Label: "a"}}}
+	transport := fakeTransport{out: map[string]string{
+		worktreeKey(0): "worktree /srv/a\nHEAD abc\nbranch refs/heads/main\n",
+		branchKey(0):   "main\n",
+	}}
+	git, _, err := CollectHost(transport, host)
+	if err != nil {
+		t.Fatalf("CollectHost() error = %v", err)
+	}
+	if len(git) == 0 {
+		t.Fatal("records = none, want the repo despite having no remote")
+	}
+	for _, record := range git {
+		if record.RepoFullName != "" {
+			t.Fatalf("record %+v full name = %q, want empty", record.ID, record.RepoFullName)
+		}
+	}
+}
+
 func TestCollectHostReportsTransportFailure(t *testing.T) {
 	transport := fakeTransport{err: errors.New("Network is unreachable")}
 	if _, _, err := CollectHost(transport, Host{Label: "asia"}); err == nil {

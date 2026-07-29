@@ -223,8 +223,158 @@ argv = ["claude"]
 		t.Fatalf("actions = %+v, want 1", cfg.Actions)
 	}
 	action := cfg.Actions[0]
-	if action.ID != "agent" || action.Where != "pane" || action.Cwd != "{path}" {
-		t.Fatalf("action = %+v, want cwd defaulted to {path}", action)
+	// An omitted cwd stays empty here: what it means depends on the workspace, so
+	// internal/action resolves it (worktree path when there is one, nothing when
+	// there is not) rather than the config baking in a requirement.
+	if action.ID != "agent" || action.Where != "pane" || action.Cwd != "" {
+		t.Fatalf("action = %+v, want an empty cwd", action)
+	}
+}
+
+func TestLoadReadsRepoGHAccount(t *testing.T) {
+	// Surrounding whitespace is trimmed because the value is handed to
+	// `gh auth token --user <account>`, where a stray space is not a valid user.
+	path := writeConfig(t, `
+[[repos]]
+root = "/home/me/code/monorepo"
+gh_account = "  louis-roche_ahrefs  "
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(cfg.Repos) != 1 {
+		t.Fatalf("repos = %+v, want 1", cfg.Repos)
+	}
+	if cfg.Repos[0].GHAccount != "louis-roche_ahrefs" {
+		t.Fatalf("gh account = %q, want %q", cfg.Repos[0].GHAccount, "louis-roche_ahrefs")
+	}
+}
+
+// A host repo's pull requests are fetched by the local `gh`, so the account has
+// to survive Load on `[[hosts.repos]]` just as it does on a local repo.
+func TestLoadReadsHostRepoGHAccount(t *testing.T) {
+	path := writeConfig(t, `
+[[hosts]]
+label = "asia"
+ssh_target = "me@asia"
+
+[[hosts.repos]]
+root = "/srv/monorepo"
+gh_account = "louis-roche_ahrefs"
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(cfg.Hosts) != 1 || len(cfg.Hosts[0].Repos) != 1 {
+		t.Fatalf("hosts = %+v, want one host with one repo", cfg.Hosts)
+	}
+	if got := cfg.Hosts[0].Repos[0].GHAccount; got != "louis-roche_ahrefs" {
+		t.Fatalf("gh account = %q, want %q", got, "louis-roche_ahrefs")
+	}
+}
+
+// An omitted account means "whatever the local `gh` is authenticated as", which
+// is the only sensible default for a single-account machine.
+func TestLoadAcceptsRepoWithoutGHAccount(t *testing.T) {
+	path := writeConfig(t, "[[repos]]\nroot = \"/home/me/code/repo\"\n")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Repos[0].GHAccount != "" {
+		t.Fatalf("gh account = %q, want it left empty", cfg.Repos[0].GHAccount)
+	}
+}
+
+// The account is passed as one argument to `gh auth token --user <account>`, so
+// an embedded space is never a real account and would surface as an opaque `gh`
+// failure long after Load, on whichever repo happens to be refreshed first.
+func TestLoadRejectsGHAccountWithWhitespace(t *testing.T) {
+	path := writeConfig(t, `
+[[repos]]
+root = "/home/me/code/monorepo"
+label = "mono"
+gh_account = "louis roche"
+`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load() error = nil, want an error about whitespace in `gh_account`")
+	}
+	for _, want := range []string{"mono", "gh_account"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("Load() error = %v, want it to mention %q", err, want)
+		}
+	}
+}
+
+func TestLoadRejectsHostRepoGHAccountWithWhitespace(t *testing.T) {
+	path := writeConfig(t, `
+[[hosts]]
+label = "asia"
+ssh_target = "me@asia"
+
+[[hosts.repos]]
+root = "/srv/monorepo"
+gh_account = "louis roche"
+`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load() error = nil, want an error about whitespace in `gh_account`")
+	}
+	if !strings.Contains(err.Error(), "asia") {
+		t.Fatalf("Load() error = %v, want it to name the host", err)
+	}
+}
+
+// Pull requests are fetched once per distinct account, so the caller wants the
+// set, not the per-repo values: duplicates would mean querying the same account
+// twice, and an empty entry would mean an extra query for the default account
+// that the accountless repos already cover.
+func TestGHAccountsReturnsDistinctNonEmptyAccounts(t *testing.T) {
+	path := writeConfig(t, `
+[[repos]]
+root = "/home/me/code/monorepo"
+gh_account = "work"
+
+[[repos]]
+root = "/home/me/code/tools"
+gh_account = "work"
+
+[[repos]]
+root = "/home/me/code/dotfiles"
+
+[[hosts]]
+label = "asia"
+ssh_target = "me@asia"
+
+[[hosts.repos]]
+root = "/srv/monorepo"
+gh_account = "personal"
+
+[[hosts.repos]]
+root = "/srv/tools"
+gh_account = "work"
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	got := cfg.GHAccounts()
+	if want := []string{"work", "personal"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("GHAccounts() = %q, want %q in first-seen order", got, want)
+	}
+}
+
+func TestGHAccountsIsEmptyWithoutConfiguredAccounts(t *testing.T) {
+	path := writeConfig(t, "[[repos]]\nroot = \"/home/me/code/repo\"\n")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got := cfg.GHAccounts(); len(got) != 0 {
+		t.Fatalf("GHAccounts() = %q, want none", got)
 	}
 }
 

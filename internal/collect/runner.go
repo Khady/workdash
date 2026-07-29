@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -14,6 +15,15 @@ import (
 // be tested without a real repo, and later lets the same collector run over ssh.
 type Runner interface {
 	Run(cwd string, argv []string) (string, error)
+}
+
+// EnvRunner can also pass variables to a command. It exists for secrets: an
+// argument is visible to every local user through /proc/<pid>/cmdline, while the
+// environment in /proc/<pid>/environ is readable only by the process owner. A
+// token therefore has to travel as env, never as argv.
+type EnvRunner interface {
+	Runner
+	RunEnv(cwd string, env []string, argv []string) (string, error)
 }
 
 // CommandError reports a command that failed, carrying what it wrote to stderr.
@@ -63,9 +73,19 @@ func firstLine(s string) string {
 
 type LocalRunner struct{}
 
-func (LocalRunner) Run(cwd string, argv []string) (string, error) {
+func (r LocalRunner) Run(cwd string, argv []string) (string, error) {
+	return r.RunEnv(cwd, nil, argv)
+}
+
+// RunEnv adds env to the ambient environment rather than replacing it: the tools
+// workdash shells out to need PATH, HOME and the rest to work at all, so a
+// command started with only the extra variables would simply fail.
+func (LocalRunner) RunEnv(cwd string, env []string, argv []string) (string, error) {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = cwd
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

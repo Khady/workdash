@@ -45,7 +45,7 @@ func Resolve(ws workspace.Workspace, defs []wdconf.Action) []Resolved {
 		if !ok {
 			continue
 		}
-		cwd, ok := render(def.Cwd, values)
+		cwd, ok := resolveCwd(def.Cwd, values)
 		if !ok {
 			continue
 		}
@@ -61,6 +61,18 @@ func Resolve(ws workspace.Workspace, defs []wdconf.Action) []Resolved {
 		})
 	}
 	return resolved
+}
+
+// resolveCwd distinguishes an omitted cwd from a configured one. Omitted means
+// "the worktree if there is one", so an action that needs no directory — opening
+// a pull request in a browser — stays available on a workspace that has no
+// worktree. A configured cwd is a requirement, and an unresolvable one drops the
+// action rather than running it somewhere unintended.
+func resolveCwd(cwd string, values map[string]string) (string, bool) {
+	if cwd == "" {
+		return values["{path}"], true
+	}
+	return render(cwd, values)
 }
 
 // hasFacets evaluates `needs`. A "!" prefix negates, so an action can require a

@@ -157,3 +157,49 @@ func TestExecutorForRejectsUnknownHost(t *testing.T) {
 		t.Fatal("executorFor() error = nil, want an error naming the unknown host")
 	}
 }
+
+func TestCollectPRsQueriesEachAccountOnceAndMergesThem(t *testing.T) {
+	asked := []string{}
+	records, warnings := collectPRs([]string{"acct-a", "acct-b"}, func(account string) ([]workspace.PRRecord, error) {
+		asked = append(asked, account)
+		return []workspace.PRRecord{{FullName: "o/" + account, Branch: "main", PR: workspace.PR{Number: 1}}}, nil
+	})
+	if len(asked) != 2 {
+		t.Fatalf("asked = %v, want one call per account", asked)
+	}
+	if len(records) != 2 {
+		t.Fatalf("records = %+v, want both accounts merged", records)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", warnings)
+	}
+}
+
+// GitHub being down must cost the pr facet, not the snapshot.
+func TestCollectPRsWarnsPerAccountAndKeepsTheRest(t *testing.T) {
+	records, warnings := collectPRs([]string{"broken", "fine"}, func(account string) ([]workspace.PRRecord, error) {
+		if account == "broken" {
+			return nil, errors.New("HTTP 401: Bad credentials")
+		}
+		return []workspace.PRRecord{{FullName: "o/r", Branch: "main", PR: workspace.PR{Number: 2}}}, nil
+	})
+	if len(records) != 1 || records[0].PR.Number != 2 {
+		t.Fatalf("records = %+v, want the working account's PRs", records)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "broken") {
+		t.Fatalf("warnings = %v, want one naming the failed account", warnings)
+	}
+}
+
+func TestCollectPRsWithNoAccountsStillQueriesAmbientAuth(t *testing.T) {
+	asked := []string{}
+	if _, warnings := collectPRs(nil, func(account string) ([]workspace.PRRecord, error) {
+		asked = append(asked, account)
+		return nil, nil
+	}); len(warnings) != 0 {
+		t.Fatalf("warnings = %v", warnings)
+	}
+	if len(asked) != 1 || asked[0] != "" {
+		t.Fatalf("asked = %q, want a single ambient-auth call", asked)
+	}
+}

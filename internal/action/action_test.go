@@ -126,3 +126,44 @@ func TestResolveHonoursNegatedFacetNeeds(t *testing.T) {
 		t.Fatalf("resolved = %+v, want gwt on a workspace with no worktree", got)
 	}
 }
+
+// An action with no configured cwd must not inherit a requirement for a worktree.
+// Opening a pull request in a browser needs no directory, and a PR-only workspace
+// has no path to offer — dropping the action there made `open-pr` unreachable on
+// exactly the workspaces it exists for.
+func TestResolveDoesNotRequireAPathForActionsThatOmitCwd(t *testing.T) {
+	prOnly := workspace.Workspace{
+		ID:        workspace.ID{Host: "asia", Repo: "/srv/dune", Branch: "louis/dune-watch"},
+		RepoLabel: "dune",
+		PR:        &workspace.PR{Number: 10868, URL: "https://github.com/ocaml/dune/pull/10868"},
+	}
+	defs := []wdconf.Action{{ID: "open-pr", Needs: []string{workspace.FacetPR},
+		Where: "capture", Argv: []string{"xdg-open", "{pr_url}"}}}
+	got := Resolve(prOnly, defs)
+	if len(got) != 1 {
+		t.Fatalf("resolved = %+v, want open-pr to be available", got)
+	}
+	if got[0].Cwd != "" {
+		t.Fatalf("cwd = %q, want empty when the workspace has no worktree", got[0].Cwd)
+	}
+	if got[0].Argv[1] != "https://github.com/ocaml/dune/pull/10868" {
+		t.Fatalf("argv = %q", got[0].Argv)
+	}
+}
+
+func TestResolveDefaultsCwdToTheWorktreeWhenThereIsOne(t *testing.T) {
+	defs := []wdconf.Action{{ID: "shell", Where: "pane", Argv: []string{"bash"}}}
+	got := Resolve(ws(), defs)
+	if len(got) != 1 || got[0].Cwd != "/wt/topic" {
+		t.Fatalf("resolved = %+v, want cwd /wt/topic", got)
+	}
+}
+
+// An explicitly configured cwd is a requirement, so it still drops the action.
+func TestResolveDropsActionsWhoseExplicitCwdCannotResolve(t *testing.T) {
+	bare := workspace.Workspace{ID: workspace.ID{Host: "local", Repo: "/repo", Branch: "topic"}}
+	defs := []wdconf.Action{{ID: "shell", Where: "pane", Argv: []string{"bash"}, Cwd: "{path}"}}
+	if got := Resolve(bare, defs); len(got) != 0 {
+		t.Fatalf("resolved = %+v, want none: {path} was asked for and is absent", got)
+	}
+}

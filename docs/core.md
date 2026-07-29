@@ -119,6 +119,16 @@ The account's token is fetched with `gh auth token --user <account>` and passed
 to `gh` in the environment, never in argv — `/proc/PID/cmdline` is world-readable
 on Linux while `/proc/PID/environ` is not.
 
+The join key is `(repo full name, head branch)` matched against **either** the
+base or the head repository, because a pull request raised from a fork reports
+the base repo while the local clone's origin is the fork. Verified against real
+data: a `Khady/dune` clone finds its `ocaml/dune` pull requests.
+
+Because each CLI run is a fresh process, fetches go through a 90-second on-disk
+cache under `$XDG_CACHE_HOME/workdash`. Cold `wd ls` is ~3s, warm is ~0.12s. The
+cache is disposable by design — a corrupt entry counts as a miss and a failed
+fetch is never stored, so deleting the directory is always safe.
+
 ## Config
 
 `~/.config/workdash/wd.toml`, or `$WD_CONFIG`. See `docs/wd.example.toml`.
@@ -193,6 +203,6 @@ Two things a code review surfaced that are deliberately left as-is for now:
 
 ## Not yet built
 
-PR collection, remote *actions* (launching a pane on `asia`), the daemon and its
-socket protocol, push-based freshness, the TUI, and the browser popup. The `PR`
-facet exists so PR collection slots in without a model change.
+The daemon and its
+and its socket protocol, push-based freshness, a window-level collector, the
+TUI, and the browser popup.

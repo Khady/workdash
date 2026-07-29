@@ -33,6 +33,7 @@ func PlanFor(host Host) Plan {
 		sections = append(sections,
 			Section{Key: worktreeKey(i), Cwd: repo.Root, Argv: worktreeArgv},
 			Section{Key: branchKey(i), Cwd: repo.Root, Argv: branchArgv},
+			Section{Key: remoteKey(i), Cwd: repo.Root, Argv: remoteArgv},
 		)
 	}
 	if host.TmuxEnabled {
@@ -49,3 +50,5 @@ func PlanFor(host Host) Plan {
 func worktreeKey(i int) string { return fmt.Sprintf("worktrees/%d", i) }
 
 func branchKey(i int) string { return fmt.Sprintf("branches/%d", i) }
+
+func remoteKey(i int) string { return fmt.Sprintf("remotes/%d", i) }

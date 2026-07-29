@@ -24,6 +24,45 @@ func TestLocalRunnerErrorIncludesStderr(t *testing.T) {
 	}
 }
 
+// RunEnv adds to the ambient environment rather than replacing it: gh needs PATH
+// and HOME to find its config at all, so a bare environment would break it.
+func TestLocalRunnerRunEnvAddsToTheAmbientEnvironment(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not available")
+	}
+	t.Setenv("WD_AMBIENT", "ambient")
+	out, err := LocalRunner{}.RunEnv("", []string{"WD_EXTRA=extra"},
+		[]string{"sh", "-c", `printf '%s %s\n' "$WD_AMBIENT" "$WD_EXTRA"`})
+	if err != nil {
+		t.Fatalf("RunEnv() error = %v", err)
+	}
+	if out != "ambient extra" {
+		t.Fatalf("out = %q, want %q", out, "ambient extra")
+	}
+}
+
+// RunEnv must classify failures exactly like Run, or a caller that reads stderr
+// stops being able to tell a missing tool from a rejected credential.
+func TestLocalRunnerRunEnvReportsStderrOnFailure(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not available")
+	}
+	_, err := LocalRunner{}.RunEnv("", []string{"WD_EXTRA=extra"},
+		[]string{"sh", "-c", "echo boom >&2; exit 1"})
+	if err == nil {
+		t.Fatal("RunEnv() error = nil, want exit status 1")
+	}
+	if got := Stderr(err); !strings.Contains(got, "boom") {
+		t.Fatalf("Stderr(err) = %q, want it to contain %q", got, "boom")
+	}
+}
+
+// The interface is what PRs is written against; asserting it here means a
+// LocalRunner that drifts out of shape fails at build time.
+func TestLocalRunnerIsAnEnvRunner(t *testing.T) {
+	var _ EnvRunner = LocalRunner{}
+}
+
 func TestLocalRunnerStderrIsReachableForClassification(t *testing.T) {
 	if _, err := exec.LookPath("sh"); err != nil {
 		t.Skip("sh not available")

@@ -19,6 +19,10 @@ const (
 type Repo struct {
 	Root  string `toml:"root"`
 	Label string `toml:"label"`
+	// GHAccount names the authenticated `gh` account whose token can see this
+	// repo's pull requests, for the machines juggling a personal and a work
+	// login. Empty means whatever account the local `gh` defaults to.
+	GHAccount string `toml:"gh_account"`
 }
 
 type Action struct {
@@ -52,6 +56,30 @@ type Config struct {
 	Repos   []Repo   `toml:"repos"`
 	Hosts   []Host   `toml:"hosts"`
 	Actions []Action `toml:"actions"`
+}
+
+// GHAccounts lists the distinct `gh_account` values configured anywhere, local
+// repos first, in first-seen order. Pull requests are fetched once per account
+// rather than once per repo, so this is the fetch plan: repos leaving the key
+// empty are covered by whatever account `gh` defaults to and contribute no
+// entry.
+func (c Config) GHAccounts() []string {
+	var accounts []string
+	seen := map[string]bool{}
+	collect := func(repos []Repo) {
+		for _, repo := range repos {
+			if repo.GHAccount == "" || seen[repo.GHAccount] {
+				continue
+			}
+			seen[repo.GHAccount] = true
+			accounts = append(accounts, repo.GHAccount)
+		}
+	}
+	collect(c.Repos)
+	for _, host := range c.Hosts {
+		collect(host.Repos)
+	}
+	return accounts
 }
 
 // LocalHost is the label the local machine collects under. It is reserved, so a
@@ -98,9 +126,6 @@ func Load(path string) (Config, error) {
 		if action.Where != WherePane && action.Where != WhereCapture {
 			return Config{}, fmt.Errorf("action %q: `where` must be %q or %q", action.ID, WherePane, WhereCapture)
 		}
-		if action.Cwd == "" {
-			action.Cwd = "{path}"
-		}
 		for _, need := range action.Needs {
 			if err := checkFacet(action.ID, need); err != nil {
 				return Config{}, err
@@ -135,6 +160,10 @@ func normalizeRepos(repos []Repo, prefix string, expandTilde bool) error {
 		}
 		if strings.Contains(repo.Label, ":") {
 			return fmt.Errorf("%srepo %q: `label` %q must not contain %q", prefix, repo.Root, repo.Label, ":")
+		}
+		repo.GHAccount = strings.TrimSpace(repo.GHAccount)
+		if strings.ContainsAny(repo.GHAccount, " \t\n\r") {
+			return fmt.Errorf("%srepo %q: `gh_account` %q must not contain whitespace", prefix, repo.Label, repo.GHAccount)
 		}
 		if previous, ok := rootByLabel[repo.Label]; ok {
 			return fmt.Errorf("%sduplicate repo `label` %q used by %q and %q: set a distinct `label` on one of them", prefix, repo.Label, previous, repo.Root)
