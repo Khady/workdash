@@ -154,6 +154,11 @@ id = "gwt"
 needs = ["!worktree"]    # offered only when the branch has no worktree yet
 ```
 
+`hosts` limits an action to named machines, empty meaning all of them. It is what
+keeps a GUI editor off a remote workspace, where it would open a path that does
+not exist locally, and keeps a command that is only installed on one machine from
+being offered on the other.
+
 `shell = true` runs the command through `bash -ic` so shell functions from your
 rc resolve. That is the single place in the codebase where a command becomes a
 quoted string, and it exists precisely so workdash can call `gwt`.

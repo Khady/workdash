@@ -167,3 +167,37 @@ func TestResolveDropsActionsWhoseExplicitCwdCannotResolve(t *testing.T) {
 		t.Fatalf("resolved = %+v, want none: {path} was asked for and is absent", got)
 	}
 }
+
+// Some actions only make sense on one machine: a GUI editor opens a local path,
+// so offering it on a remote workspace would launch it against a path that does
+// not exist here. An empty host list means every host.
+func TestResolveHonoursHostScoping(t *testing.T) {
+	defs := []wdconf.Action{
+		{ID: "code", Hosts: []string{"local"}, Needs: []string{workspace.FacetWorktree},
+			Where: "capture", Argv: []string{"code", "{path}"}},
+		{ID: "shell", Needs: []string{workspace.FacetWorktree}, Where: "pane", Argv: []string{"bash"}},
+	}
+	local := ws()
+	if got := Resolve(local, defs); len(got) != 2 {
+		t.Fatalf("resolved on local = %+v, want both", got)
+	}
+	remote := ws()
+	remote.ID.Host = "asia"
+	got := Resolve(remote, defs)
+	if len(got) != 1 || got[0].ID != "shell" {
+		t.Fatalf("resolved on asia = %+v, want only shell", got)
+	}
+}
+
+func TestResolveAllowsAnActionScopedToARemoteHost(t *testing.T) {
+	defs := []wdconf.Action{{ID: "vim", Hosts: []string{"asia"},
+		Needs: []string{workspace.FacetWorktree}, Where: "pane", Argv: []string{"vim", "{path}"}}}
+	remote := ws()
+	remote.ID.Host = "asia"
+	if got := Resolve(remote, defs); len(got) != 1 {
+		t.Fatalf("resolved = %+v, want the asia-scoped action", got)
+	}
+	if got := Resolve(ws(), defs); len(got) != 0 {
+		t.Fatalf("resolved on local = %+v, want none", got)
+	}
+}

@@ -41,6 +41,9 @@ func Resolve(ws workspace.Workspace, defs []wdconf.Action) []Resolved {
 		if !hasFacets(ws, def.Needs) {
 			continue
 		}
+		if !onHost(ws.ID.Host, def.Hosts) {
+			continue
+		}
 		argv, ok := renderAll(def.Argv, values)
 		if !ok {
 			continue
@@ -79,6 +82,20 @@ func resolveCwd(cwd string, values map[string]string) (string, bool) {
 // facet to be absent — "create worktree" belongs only on workspaces that have
 // none. Facet absence is a first-class state, so the action language has to be
 // able to select on it.
+// onHost reports whether an action applies to a host. An empty list means every
+// host, so scoping is opt-in.
+func onHost(host string, hosts []string) bool {
+	if len(hosts) == 0 {
+		return true
+	}
+	for _, candidate := range hosts {
+		if candidate == host {
+			return true
+		}
+	}
+	return false
+}
+
 func hasFacets(ws workspace.Workspace, needs []string) bool {
 	for _, facet := range needs {
 		want := true

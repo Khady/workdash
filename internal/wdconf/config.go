@@ -29,6 +29,10 @@ type Action struct {
 	ID    string   `toml:"id"`
 	Label string   `toml:"label"`
 	Needs []string `toml:"needs"`
+	// Hosts limits an action to named hosts. Empty means every host. A GUI editor
+	// belongs on "local" only, because it would otherwise be offered for a remote
+	// workspace and open a path that does not exist on this machine.
+	Hosts []string `toml:"hosts"`
 	Where string   `toml:"where"`
 	Argv  []string `toml:"argv"`
 	Cwd   string   `toml:"cwd"`
