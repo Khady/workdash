@@ -35,9 +35,12 @@ type Action struct {
 // local ones. The local machine is not spelled out in the config; it is implied,
 // which is why `local` is not available as a host label.
 type Host struct {
-	Label       string `toml:"label"`
-	SSHTarget   string `toml:"ssh_target"`
-	TmuxEnabled bool   `toml:"tmux"`
+	Label     string `toml:"label"`
+	SSHTarget string `toml:"ssh_target"`
+	// Tmux is a pointer so an omitted key is distinguishable from an explicit
+	// false; TmuxEnabled is the resolved value consumers read.
+	Tmux        *bool  `toml:"tmux"`
+	TmuxEnabled bool   `toml:"-"`
 	Repos       []Repo `toml:"repos"`
 }
 
@@ -158,6 +161,7 @@ func normalizeHosts(hosts []Host) error {
 			return fmt.Errorf("duplicate host `label` %q: set a distinct `label` on one of them", host.Label)
 		}
 		seen[host.Label] = true
+		host.TmuxEnabled = host.Tmux == nil || *host.Tmux
 		host.SSHTarget = strings.TrimSpace(host.SSHTarget)
 		if host.SSHTarget == "" {
 			return fmt.Errorf("host %q: `ssh_target` is required", host.Label)

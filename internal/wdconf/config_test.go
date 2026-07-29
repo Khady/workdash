@@ -450,3 +450,29 @@ argv = ["true"]
 		t.Fatalf("where = %q, want %q", cfg.Actions[0].Where, WherePane)
 	}
 }
+
+// Omitting `tmux` on a host must not silently hide its sessions: a missing
+// session facet looks identical to "the session died", which is the failure mode
+// this project keeps having to fix. Collecting tmux from a host that has none is
+// harmless, so the default is on.
+func TestLoadDefaultsHostTmuxToEnabled(t *testing.T) {
+	path := writeConfig(t, "[[hosts]]\nlabel = \"asia\"\nssh_target = \"me@asia\"\n")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.Hosts[0].TmuxEnabled {
+		t.Fatal("host tmux should default to enabled when the key is omitted")
+	}
+}
+
+func TestLoadHonoursExplicitHostTmuxFalse(t *testing.T) {
+	path := writeConfig(t, "[[hosts]]\nlabel = \"asia\"\nssh_target = \"me@asia\"\ntmux = false\n")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Hosts[0].TmuxEnabled {
+		t.Fatal("explicit tmux = false must be honoured")
+	}
+}
