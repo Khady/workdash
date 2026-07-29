@@ -39,9 +39,13 @@ type Host struct {
 	SSHTarget string `toml:"ssh_target"`
 	// Tmux is a pointer so an omitted key is distinguishable from an explicit
 	// false; TmuxEnabled is the resolved value consumers read.
-	Tmux        *bool  `toml:"tmux"`
-	TmuxEnabled bool   `toml:"-"`
-	Repos       []Repo `toml:"repos"`
+	Tmux        *bool `toml:"tmux"`
+	TmuxEnabled bool  `toml:"-"`
+	// AttachArgv reaches the host interactively, with SSHTarget appended. It is
+	// argv rather than a template so `mosh -p 25300:25399` needs no quoting
+	// rules, and it defaults to plain ssh with a tty.
+	AttachArgv []string `toml:"attach_argv"`
+	Repos      []Repo   `toml:"repos"`
 }
 
 type Config struct {
@@ -169,6 +173,10 @@ func normalizeHosts(hosts []Host) error {
 		if strings.ContainsAny(host.SSHTarget, " \t\n\r") {
 			return fmt.Errorf("host %q: `ssh_target` %q must not contain whitespace", host.Label, host.SSHTarget)
 		}
+		if len(host.AttachArgv) == 0 {
+			host.AttachArgv = []string{"ssh", "-t"}
+		}
+		host.AttachArgv = append(append([]string{}, host.AttachArgv...), host.SSHTarget)
 		if err := normalizeRepos(host.Repos, fmt.Sprintf("host %q: ", host.Label), false); err != nil {
 			return err
 		}

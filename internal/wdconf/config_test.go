@@ -476,3 +476,41 @@ func TestLoadHonoursExplicitHostTmuxFalse(t *testing.T) {
 		t.Fatal("explicit tmux = false must be honoured")
 	}
 }
+
+func TestLoadDefaultsHostAttachArgv(t *testing.T) {
+	path := writeConfig(t, "[[hosts]]\nlabel = \"asia\"\nssh_target = \"me@asia\"\n")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	want := []string{"ssh", "-t", "me@asia"}
+	got := cfg.Hosts[0].AttachArgv
+	if len(got) != len(want) {
+		t.Fatalf("attach argv = %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("attach argv = %q, want %q", got, want)
+		}
+	}
+}
+
+// mosh survives a suspended laptop, which is why it is worth configuring for a
+// host you keep long-running agents on.
+func TestLoadAppendsSSHTargetToConfiguredAttachArgv(t *testing.T) {
+	path := writeConfig(t, `
+[[hosts]]
+label = "asia"
+ssh_target = "me@asia"
+attach_argv = ["mosh", "-p", "25300:25399"]
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	got := cfg.Hosts[0].AttachArgv
+	want := []string{"mosh", "-p", "25300:25399", "me@asia"}
+	if len(got) != len(want) || got[len(got)-1] != "me@asia" {
+		t.Fatalf("attach argv = %q, want %q", got, want)
+	}
+}

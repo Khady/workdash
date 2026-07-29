@@ -70,6 +70,27 @@ Two things that are easy to get wrong here, both now pinned by tests:
 Hosts are collected concurrently and degrade independently: an unreachable host
 contributes one warning and the rest of the list still renders.
 
+### Remote actions
+
+`capture` on a remote workspace is one ssh. `pane` is two steps: the window is
+created on the far side first, so the work survives losing the connection, and
+then a *local* tmux window attaches to it. That is deliberate — remote agents end
+up in the same local window list, and the same F-key switching, as local ones.
+The local window is named `host/branch` so two machines with the same branch do
+not collide.
+
+How to reach a host interactively is `attach_argv`, defaulting to `["ssh", "-t"]`
+with the target appended. mosh is worth configuring for a host you keep
+long-running agents on, because it survives a suspended laptop:
+
+```toml
+attach_argv = ["mosh", "-p", "25300:25399"]
+```
+
+Anything sent over ssh is assembled as remote shell text with each argument
+quoted individually — never as one quoted blob, which would make the far side try
+to run a command whose name contains spaces.
+
 ## Config
 
 `~/.config/workdash/wd.toml`, or `$WD_CONFIG`. See `docs/wd.example.toml`.

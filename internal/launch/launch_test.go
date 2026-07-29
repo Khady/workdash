@@ -28,23 +28,43 @@ type recordRunner struct {
 
 func (r *recordRunner) Run(cwd string, argv []string) (string, error) {
 	r.calls = append(r.calls, recordedCall{cwd: cwd, argv: append([]string(nil), argv...)})
-	if len(argv) >= 3 && argv[0] == "tmux" && argv[1] == "has-session" {
-		if r.sessions[strings.TrimPrefix(strings.TrimSuffix(argv[2], ":"), "-t=")] {
+	// The fake models one tmux server, and does so for both the direct form
+	// (`tmux has-session ...`) and the ssh-wrapped form, where the whole tmux
+	// command arrives as remote shell text. Recognising only the direct form
+	// would let the remote path silently take the wrong branch.
+	text := strings.Join(argv, " ")
+	if strings.Contains(text, "tmux has-session") {
+		if r.sessions[tmuxTargetName(text)] {
 			return "", nil
 		}
 		return "", errors.New("can't find session")
 	}
-	if len(argv) >= 5 && argv[0] == "tmux" && argv[1] == "new-session" && r.err == nil {
+	if name := afterMarker(text, "tmux new-session -d -s "); name != "" && r.err == nil {
 		if r.sessions == nil {
 			r.sessions = map[string]bool{}
 		}
-		for i, arg := range argv {
-			if arg == "-s" && i+1 < len(argv) {
-				r.sessions[argv[i+1]] = true
-			}
-		}
+		r.sessions[name] = true
 	}
 	return "ok", r.err
+}
+
+// tmuxTargetName pulls the session out of a "-t=name" target, which may be
+// quoted and may carry a trailing ":" for session scope.
+func tmuxTargetName(text string) string {
+	name := afterMarker(text, "-t=")
+	return strings.Trim(name, "':\"")
+}
+
+func afterMarker(text, marker string) string {
+	i := strings.Index(text, marker)
+	if i < 0 {
+		return ""
+	}
+	rest := text[i+len(marker):]
+	if j := strings.IndexAny(rest, " \t"); j >= 0 {
+		rest = rest[:j]
+	}
+	return strings.Trim(rest, "':\"")
 }
 
 func (r *recordRunner) argv(i int) []string {

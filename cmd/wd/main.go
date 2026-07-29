@@ -86,7 +86,10 @@ func run(argv []string) error {
 			if resolved.ID != argv[2] {
 				continue
 			}
-			executor := launch.Tmux{Runner: collect.LocalRunner{}, InsideTmux: os.Getenv("TMUX") != ""}
+			executor, err := executorFor(cfg, resolved.Host)
+			if err != nil {
+				return err
+			}
 			out, err := execute(executor, resolved)
 			if err != nil {
 				return err
@@ -100,6 +103,28 @@ func run(argv []string) error {
 			argv[2], argv[1], strings.Join(actionIDs(available), ", "))
 	}
 	return fmt.Errorf("unknown command %q\n\n%s", argv[0], usage)
+}
+
+// executorFor picks how to reach a workspace's host. The local machine runs tmux
+// directly; a remote one creates the window over ssh and attaches to it from a
+// local tmux window, so remote work lands in the same window list as local work.
+func executorFor(cfg wdconf.Config, host string) (launch.Executor, error) {
+	local := launch.Tmux{Runner: collect.LocalRunner{}, InsideTmux: os.Getenv("TMUX") != ""}
+	if host == wdconf.LocalHost {
+		return local, nil
+	}
+	for _, configured := range cfg.Hosts {
+		if configured.Label != host {
+			continue
+		}
+		return launch.Remote{
+			Runner: collect.LocalRunner{},
+			Target: configured.SSHTarget,
+			Attach: configured.AttachArgv,
+			Local:  local,
+		}, nil
+	}
+	return nil, fmt.Errorf("unknown host %q", host)
 }
 
 // execute takes the executor as a parameter rather than building one, so the

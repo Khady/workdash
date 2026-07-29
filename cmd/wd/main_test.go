@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Khady/workdash/internal/action"
+	"github.com/Khady/workdash/internal/launch"
 	"github.com/Khady/workdash/internal/wdconf"
 	"github.com/Khady/workdash/internal/workspace"
 )
@@ -124,5 +125,35 @@ func TestMergeHostResultsIndexesEveryHostTogether(t *testing.T) {
 	}
 	if snap.Workspaces[0].ID.Host != "asia" {
 		t.Fatalf("first host = %q, want asia sorted before local", snap.Workspaces[0].ID.Host)
+	}
+}
+
+func TestExecutorForPicksLocalOrRemoteByHost(t *testing.T) {
+	cfg := wdconf.Config{Hosts: []wdconf.Host{
+		{Label: "asia", SSHTarget: "me@asia", AttachArgv: []string{"mosh", "me@asia"}},
+	}}
+	local, err := executorFor(cfg, wdconf.LocalHost)
+	if err != nil {
+		t.Fatalf("executorFor(local) error = %v", err)
+	}
+	if _, ok := local.(launch.Tmux); !ok {
+		t.Fatalf("local executor = %T, want launch.Tmux", local)
+	}
+	remote, err := executorFor(cfg, "asia")
+	if err != nil {
+		t.Fatalf("executorFor(asia) error = %v", err)
+	}
+	got, ok := remote.(launch.Remote)
+	if !ok {
+		t.Fatalf("remote executor = %T, want launch.Remote", remote)
+	}
+	if got.Target != "me@asia" || len(got.Attach) != 2 {
+		t.Fatalf("remote executor = %+v, want the host's target and attach argv", got)
+	}
+}
+
+func TestExecutorForRejectsUnknownHost(t *testing.T) {
+	if _, err := executorFor(wdconf.Config{}, "nowhere"); err == nil {
+		t.Fatal("executorFor() error = nil, want an error naming the unknown host")
 	}
 }
