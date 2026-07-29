@@ -44,3 +44,16 @@ func TestPopulateMapsTableRowsBackToWorkspaces(t *testing.T) {
 		t.Fatalf("selected() = %+v, want nil when the filter empties the table", selected)
 	}
 }
+
+// The first load must land on the newest row at the top. Preserving the selection
+// is right for a reload, but on the first one there is nothing to preserve and
+// skipping the scroll reset leaves the viewport wherever tview last had it —
+// which for a list of hundreds is the bottom, i.e. the oldest work.
+func TestFirstLoadDoesNotPreserveSelection(t *testing.T) {
+	if preserveOnLoad(time.Time{}) {
+		t.Fatal("first load must not preserve: there is no prior selection, and the view has to start at the top")
+	}
+	if !preserveOnLoad(time.Unix(1000, 0)) {
+		t.Fatal("a reload must preserve the selection")
+	}
+}

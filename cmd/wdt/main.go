@@ -117,7 +117,17 @@ func (a *app) run() error {
 // load refreshes the snapshot off the event loop. Collecting eleven repos over
 // ssh costs a tenth of a second warm and seconds cold, which is long enough that
 // doing it inline would freeze the keyboard.
+// preserveOnLoad decides whether a load keeps the current selection. A reload
+// should: the row you were about to act on is usually still there, and moving it
+// under the cursor is how a dashboard runs the wrong command. The first load must
+// not, because there is nothing to preserve and the viewport has to be put at the
+// top — otherwise it opens on the oldest branch in the list.
+func preserveOnLoad(loadedAt time.Time) bool {
+	return !loadedAt.IsZero()
+}
+
 func (a *app) load() {
+	loadedBefore := a.loadedAt
 	a.loading = true
 	a.renderChrome()
 	go func() {
@@ -131,7 +141,7 @@ func (a *app) load() {
 			// Keep the selection across a reload: the row you were about to act on
 			// is usually still there, and moving it under the cursor is how a
 			// dashboard runs the wrong command.
-			a.populate(true)
+			a.populate(preserveOnLoad(loadedBefore))
 		})
 	}()
 }
