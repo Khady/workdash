@@ -16,9 +16,15 @@ type GitRecord struct {
 // full name and head branch. It carries no host: a pull request is a fact about
 // a branch, not about a machine.
 type PRRecord struct {
-	FullName string
-	Branch   string
-	PR       PR
+	// FullName is the repository the pull request was opened against, and
+	// HeadFullName is where the branch lives. They differ for a fork workflow:
+	// a PR from Khady/dune to ocaml/dune has FullName "ocaml/dune" and
+	// HeadFullName "Khady/dune", and the local clone's origin is the fork — so
+	// matching only FullName would miss every fork-based pull request.
+	FullName     string
+	HeadFullName string
+	Branch       string
+	PR           PR
 }
 
 type SessionRecord struct {
@@ -118,12 +124,15 @@ func copyWorktree(worktree *Worktree) *Worktree {
 // degrade to "no pr facet" rather than to no snapshot.
 func AttachPRs(snap Snapshot, prs []PRRecord) Snapshot {
 	for _, record := range prs {
-		if record.FullName == "" || record.Branch == "" {
+		if record.Branch == "" || (record.FullName == "" && record.HeadFullName == "") {
 			continue
 		}
 		for i := range snap.Workspaces {
 			ws := &snap.Workspaces[i]
-			if ws.RepoFullName != record.FullName || ws.ID.Branch != record.Branch {
+			if ws.ID.Branch != record.Branch || ws.RepoFullName == "" {
+				continue
+			}
+			if ws.RepoFullName != record.FullName && ws.RepoFullName != record.HeadFullName {
 				continue
 			}
 			pr := record.PR

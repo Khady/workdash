@@ -155,3 +155,36 @@ func TestAttachPRsSkipsWorkspacesWithNoKnownFullName(t *testing.T) {
 		t.Fatal("a repo with no remote must not match a PR with an empty full name")
 	}
 }
+
+// A pull request raised from a fork has repository = the base repo (ocaml/dune)
+// while the local clone's origin is the fork (Khady/dune). Matching only the base
+// would never find it, which is most of a fork-based workflow.
+func TestAttachPRsMatchesForkWorkflowByHeadRepository(t *testing.T) {
+	snap := Index([]GitRecord{
+		{ID: ID{Host: "asia", Repo: "/srv/dune", Branch: "louis/dune-watch"},
+			RepoLabel: "dune", RepoFullName: "Khady/dune"},
+	}, nil)
+	got := AttachPRs(snap, []PRRecord{{
+		FullName:     "ocaml/dune",
+		HeadFullName: "Khady/dune",
+		Branch:       "louis/dune-watch",
+		PR:           PR{Number: 10868, URL: "https://github.com/ocaml/dune/pull/10868"},
+	}})
+	if pr := got.Workspaces[0].PR; pr == nil || pr.Number != 10868 {
+		t.Fatalf("pr = %+v, want #10868 matched via the head repository", pr)
+	}
+}
+
+func TestAttachPRsStillMatchesSameRepoPullRequests(t *testing.T) {
+	snap := Index([]GitRecord{
+		{ID: ID{Host: "asia", Repo: "/srv/mono", Branch: "louis/x"},
+			RepoLabel: "monorepo", RepoFullName: "ahrefs-core/monorepo"},
+	}, nil)
+	got := AttachPRs(snap, []PRRecord{{
+		FullName: "ahrefs-core/monorepo", HeadFullName: "ahrefs-core/monorepo",
+		Branch: "louis/x", PR: PR{Number: 5},
+	}})
+	if !got.Workspaces[0].Has(FacetPR) {
+		t.Fatal("a same-repo pull request must still attach")
+	}
+}
