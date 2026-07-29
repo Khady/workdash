@@ -6,9 +6,19 @@ import "sort"
 // Worktree still creates a workspace: a branch that exists but is not checked
 // out anywhere is a legitimate thing to act on.
 type GitRecord struct {
-	ID        ID
-	RepoLabel string
-	Worktree  *Worktree
+	ID           ID
+	RepoLabel    string
+	RepoFullName string
+	Worktree     *Worktree
+}
+
+// PRRecord is a pull request keyed the way GitHub describes it, by repository
+// full name and head branch. It carries no host: a pull request is a fact about
+// a branch, not about a machine.
+type PRRecord struct {
+	FullName string
+	Branch   string
+	PR       PR
 }
 
 type SessionRecord struct {
@@ -33,7 +43,8 @@ func Index(git []GitRecord, sessions []SessionRecord) Snapshot {
 	for _, record := range git {
 		existing, ok := byID[record.ID]
 		if !ok {
-			byID[record.ID] = &Workspace{ID: record.ID, RepoLabel: record.RepoLabel, Worktree: copyWorktree(record.Worktree)}
+			byID[record.ID] = &Workspace{ID: record.ID, RepoLabel: record.RepoLabel,
+				RepoFullName: record.RepoFullName, Worktree: copyWorktree(record.Worktree)}
 			order = append(order, record.ID)
 			continue
 		}
@@ -42,6 +53,9 @@ func Index(git []GitRecord, sessions []SessionRecord) Snapshot {
 		}
 		if existing.RepoLabel == "" {
 			existing.RepoLabel = record.RepoLabel
+		}
+		if existing.RepoFullName == "" {
+			existing.RepoFullName = record.RepoFullName
 		}
 	}
 
@@ -93,4 +107,28 @@ func copyWorktree(worktree *Worktree) *Worktree {
 	}
 	copied := *worktree
 	return &copied
+}
+
+// AttachPRs adds the pull request facet to every workspace whose repository and
+// branch a pull request names.
+//
+// It is separate from Index because pull requests come from a different source
+// with a different cost: GitHub is the only network call in the system, so it
+// must never gate the git and tmux facts, and a stale or failed PR fetch has to
+// degrade to "no pr facet" rather than to no snapshot.
+func AttachPRs(snap Snapshot, prs []PRRecord) Snapshot {
+	for _, record := range prs {
+		if record.FullName == "" || record.Branch == "" {
+			continue
+		}
+		for i := range snap.Workspaces {
+			ws := &snap.Workspaces[i]
+			if ws.RepoFullName != record.FullName || ws.ID.Branch != record.Branch {
+				continue
+			}
+			pr := record.PR
+			ws.PR = &pr
+		}
+	}
+	return snap
 }

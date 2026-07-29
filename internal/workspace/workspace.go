@@ -51,11 +51,15 @@ type PR struct {
 // in one, a shell in another. Collapsing them to a single session would report
 // the extras as unrelated.
 type Workspace struct {
-	ID        ID        `json:"id"`
-	RepoLabel string    `json:"repo_label"`
-	Worktree  *Worktree `json:"worktree,omitempty"`
-	Sessions  []Session `json:"sessions,omitempty"`
-	PR        *PR       `json:"pr,omitempty"`
+	ID        ID     `json:"id"`
+	RepoLabel string `json:"repo_label"`
+	// RepoFullName is the "owner/name" the remote points at. It is how a pull
+	// request finds its workspace, and it is why the same PR attaches to every
+	// clone of that repo rather than just one.
+	RepoFullName string    `json:"repo_full_name,omitempty"`
+	Worktree     *Worktree `json:"worktree,omitempty"`
+	Sessions     []Session `json:"sessions,omitempty"`
+	PR           *PR       `json:"pr,omitempty"`
 }
 
 func (w Workspace) Has(facet string) bool {

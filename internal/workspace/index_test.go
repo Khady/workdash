@@ -99,3 +99,59 @@ func TestIndexDoesNotAliasCallerWorktrees(t *testing.T) {
 		t.Fatalf("worktree path = %q, want /wt/topic: Index must not alias its input", got)
 	}
 }
+
+func TestAttachPRsMatchesByRepoFullNameAndBranch(t *testing.T) {
+	snap := Index([]GitRecord{
+		{ID: ID{Host: "local", Repo: "/a", Branch: "louis/dune-watch"}, RepoLabel: "dune", RepoFullName: "ocaml/dune"},
+		{ID: ID{Host: "local", Repo: "/a", Branch: "other"}, RepoLabel: "dune", RepoFullName: "ocaml/dune"},
+	}, nil)
+	got := AttachPRs(snap, []PRRecord{
+		{FullName: "ocaml/dune", Branch: "louis/dune-watch",
+			PR: PR{Number: 10868, URL: "https://github.com/ocaml/dune/pull/10868", State: "MERGED"}},
+	})
+	byBranch := map[string]Workspace{}
+	for _, ws := range got.Workspaces {
+		byBranch[ws.ID.Branch] = ws
+	}
+	if pr := byBranch["louis/dune-watch"].PR; pr == nil || pr.Number != 10868 {
+		t.Fatalf("pr = %+v, want #10868", pr)
+	}
+	if byBranch["other"].Has(FacetPR) {
+		t.Fatal("a branch with no matching PR must not gain a pr facet")
+	}
+}
+
+// The same PR belongs to the same branch wherever that repo is cloned, so it
+// attaches on every host rather than only the first.
+func TestAttachPRsMatchesAcrossHosts(t *testing.T) {
+	snap := Index([]GitRecord{
+		{ID: ID{Host: "local", Repo: "/a", Branch: "topic"}, RepoLabel: "dune", RepoFullName: "ocaml/dune"},
+		{ID: ID{Host: "asia", Repo: "/srv/a", Branch: "topic"}, RepoLabel: "dune", RepoFullName: "ocaml/dune"},
+	}, nil)
+	got := AttachPRs(snap, []PRRecord{{FullName: "ocaml/dune", Branch: "topic", PR: PR{Number: 7}}})
+	for _, ws := range got.Workspaces {
+		if !ws.Has(FacetPR) {
+			t.Fatalf("workspace on %q has no pr facet", ws.ID.Host)
+		}
+	}
+}
+
+func TestAttachPRsIgnoresOtherRepositoriesWithTheSameBranchName(t *testing.T) {
+	snap := Index([]GitRecord{
+		{ID: ID{Host: "local", Repo: "/a", Branch: "main"}, RepoLabel: "dune", RepoFullName: "ocaml/dune"},
+	}, nil)
+	got := AttachPRs(snap, []PRRecord{{FullName: "someone/else", Branch: "main", PR: PR{Number: 1}}})
+	if got.Workspaces[0].Has(FacetPR) {
+		t.Fatal("a PR from a different repository must not attach")
+	}
+}
+
+func TestAttachPRsSkipsWorkspacesWithNoKnownFullName(t *testing.T) {
+	snap := Index([]GitRecord{
+		{ID: ID{Host: "local", Repo: "/a", Branch: "main"}, RepoLabel: "local-only"},
+	}, nil)
+	got := AttachPRs(snap, []PRRecord{{FullName: "", Branch: "main", PR: PR{Number: 1}}})
+	if got.Workspaces[0].Has(FacetPR) {
+		t.Fatal("a repo with no remote must not match a PR with an empty full name")
+	}
+}
