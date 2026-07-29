@@ -14,8 +14,14 @@ import (
 	"strings"
 
 	"github.com/Khady/workdash/internal/action"
-	"github.com/Khady/workdash/internal/collect"
 )
+
+// Runner executes a command somewhere. Declared here rather than imported so
+// the executor does not depend on the collector package; any collect.Runner
+// satisfies it structurally.
+type Runner interface {
+	Run(cwd string, argv []string) (string, error)
+}
 
 type Executor interface {
 	Pane(action.Resolved) (string, error)
@@ -23,7 +29,7 @@ type Executor interface {
 }
 
 type Tmux struct {
-	Runner     collect.Runner
+	Runner     Runner
 	InsideTmux bool
 }
 
@@ -37,6 +43,16 @@ func (t Tmux) Pane(resolved action.Resolved) (string, error) {
 		}
 		return fmt.Sprintf("opened tmux window %q", name), nil
 	}
+	// A workspace may carry several sessions, so this is routinely the second
+	// action on the same branch. Creating a session that already exists fails
+	// with `duplicate session`, so an existing one gets a window instead.
+	if t.hasSession(name) {
+		call := append([]string{"tmux", "new-window", "-t" + exactTarget(name) + ":", "-n", name, "-c", resolved.Cwd, "--"}, argv...)
+		if _, err := t.Runner.Run("", call); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("opened window %q in existing session %q; attach with `tmux attach -t %s`", name, name, name), nil
+	}
 	call := append([]string{"tmux", "new-session", "-d", "-s", name, "-c", resolved.Cwd, "--"}, argv...)
 	if _, err := t.Runner.Run("", call); err != nil {
 		return "", err
@@ -46,6 +62,21 @@ func (t Tmux) Pane(resolved action.Resolved) (string, error) {
 
 func (t Tmux) Capture(resolved action.Resolved) (string, error) {
 	return t.Runner.Run(resolved.Cwd, commandArgv(resolved))
+}
+
+// hasSession probes for a session by name. Any failure — no server, no such
+// session, no tmux at all — means there is nothing to add a window to, which is
+// exactly the case where creating a session is right.
+func (t Tmux) hasSession(name string) bool {
+	_, err := t.Runner.Run("", []string{"tmux", "has-session", "-t" + exactTarget(name)})
+	return err == nil
+}
+
+// exactTarget builds a tmux target that only matches this session. Without the
+// "=" prefix tmux also accepts a prefix match, so a workspace named `topic`
+// would find the unrelated session `topic-2` and drop the window in it.
+func exactTarget(name string) string {
+	return "=" + name
 }
 
 // paneName prefers the workspace name so the tmux window picker stays readable;

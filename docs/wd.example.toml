@@ -5,7 +5,7 @@
 # and where they run: `pane` for a tmux window, `capture` to run and show output.
 
 [[repos]]
-root = "/home/louis/Code/github/workdash"
+root = "~/code/your-repo"
 
 [[actions]]
 id = "shell"
@@ -34,6 +34,7 @@ argv = ["git", "status", "--short", "--branch"]
 [[actions]]
 id = "gwt"
 label = "create worktree"
+needs = ["!worktree"]
 where = "pane"
 shell = true
 argv = ["gwt", "{branch}"]

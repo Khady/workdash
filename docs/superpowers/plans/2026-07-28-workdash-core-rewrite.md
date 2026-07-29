@@ -1527,3 +1527,40 @@ git commit -m "Add example wd config"
 **Placeholder scan:** the only prose-instead-of-code step is the `IsMain` note in Task 3 Step 3, which names the exact fix (count flushed worktree blocks) — resolve it while implementing rather than copying the sketch.
 
 **Type consistency:** `workspace.GitRecord`/`SessionRecord`/`Snapshot` are defined in T2 and consumed in T3, T4, T8. `wdconf.Action` is defined in T5 and consumed in T6. `action.Resolved` is defined in T6 and consumed in T7, T8. `collect.Runner` is defined in T3 and consumed in T4, T7, T8. `Select` is defined in T8 and used only there.
+
+---
+
+## Deviations from this plan, as implemented
+
+The plan was followed task by task; these are the places the code intentionally
+diverged. Read the code as authoritative where they disagree.
+
+- **Task 1/2 — `Sessions []Session`, not `Session *Session`.** End-to-end
+  verification showed a second tmux session on the same worktree printing as
+  `(unlinked)` when it plainly was not. Several sessions per worktree is a normal
+  state, so the facet is plural.
+- **Task 2 — `Index` copies facet structs** (`copyWorktree`) instead of storing
+  the caller's `*Worktree`, so the "pure merge" claim in its doc comment holds.
+- **Task 3 — `--format=%(refname:lstrip=2)`, not `%(refname:short)`.** `short`
+  returns the shortest *unambiguous* name: with a tag and a branch both named
+  `v1.0`, it emits `heads/v1.0`, which never merges with the worktree record
+  keyed `v1.0`, producing a phantom workspace and making the real one
+  unselectable.
+- **Task 3 — `LocalRunner` surfaces stderr.** `cmd.Output()` discards it, which
+  turned `fatal: not a git repository` into `exit status 128`.
+- **Task 4 — `Tmux` only treats a *missing server* as "no sessions".** The plan
+  matched any `exit status 1`, which silently stripped the session facet from
+  every workspace on unrelated tmux failures.
+- **Task 5 — `Load` also validates `needs` facets, expands `~`, normalizes repo
+  roots, and rejects duplicate or colon-bearing labels.** Each of those was a
+  way to make a workspace permanently invisible or unaddressable.
+- **Task 6 — only known placeholders are substituted**, and `needs` supports a
+  `!` prefix for absence. Treating every brace span as a placeholder silently
+  deleted any action containing `awk '{print $1}'`.
+- **Task 7 — `Resolved.Name` (branch-derived, tmux-sanitized) names the window**
+  rather than the action id, and `Pane` outside tmux adds a window to an existing
+  session instead of failing with `duplicate session`. `launch` declares its own
+  `Runner` interface rather than importing `collect`.
+- **Task 8 — `execute` takes an `Executor` parameter** so dispatch is testable,
+  `printSnapshot` takes an `io.Writer`, and `wd` exits non-zero when the snapshot
+  is empty *and* every collector warned.

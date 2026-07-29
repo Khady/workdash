@@ -63,9 +63,17 @@ func Resolve(ws workspace.Workspace, defs []wdconf.Action) []Resolved {
 	return resolved
 }
 
+// hasFacets evaluates `needs`. A "!" prefix negates, so an action can require a
+// facet to be absent — "create worktree" belongs only on workspaces that have
+// none. Facet absence is a first-class state, so the action language has to be
+// able to select on it.
 func hasFacets(ws workspace.Workspace, needs []string) bool {
 	for _, facet := range needs {
-		if !ws.Has(facet) {
+		want := true
+		if strings.HasPrefix(facet, "!") {
+			want, facet = false, strings.TrimPrefix(facet, "!")
+		}
+		if ws.Has(facet) != want {
 			return false
 		}
 	}
@@ -105,9 +113,19 @@ func renderAll(argv []string, values map[string]string) ([]string, bool) {
 	return out, true
 }
 
-// render substitutes {placeholder} spans. An unknown or empty placeholder makes
-// the whole action inapplicable rather than producing a command with a hole in
-// it, which is why the second return value exists.
+// known lists every placeholder workdash understands. Brace spans outside this
+// set are left alone, because plenty of real commands contain braces of their
+// own: `awk '{print $1}'`, `git log --format={...}`, `find -name '*.{go,md}'`.
+// Treating those as placeholders silently deleted the action.
+var known = map[string]bool{
+	"{path}": true, "{branch}": true, "{repo}": true, "{host}": true,
+	"{session}": true, "{pr_url}": true, "{pr_number}": true,
+}
+
+// render substitutes known {placeholder} spans and passes anything else through
+// verbatim. A known placeholder with no value for this workspace makes the whole
+// action inapplicable rather than producing a command with a hole in it, which
+// is why the second return value exists.
 func render(text string, values map[string]string) (string, bool) {
 	done := ""
 	for {
@@ -120,8 +138,13 @@ func render(text string, values map[string]string) (string, bool) {
 			return done + text, true
 		}
 		key := text[start : start+end+1]
-		value, ok := values[key]
-		if !ok || value == "" {
+		if !known[key] {
+			done += text[:start+end+1]
+			text = text[start+end+1:]
+			continue
+		}
+		value := values[key]
+		if value == "" {
 			return "", false
 		}
 		done += text[:start] + value

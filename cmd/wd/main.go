@@ -8,6 +8,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -44,6 +45,9 @@ func run(argv []string) error {
 	for _, warning := range warnings {
 		fmt.Fprintln(os.Stderr, "wd: "+warning)
 	}
+	if snapshotFailed(len(snap.Workspaces), warnings) {
+		return fmt.Errorf("no workspaces collected; every source failed (see warnings above)")
+	}
 
 	switch argv[0] {
 	case "ls":
@@ -52,7 +56,7 @@ func run(argv []string) error {
 			encoder.SetIndent("", "  ")
 			return encoder.Encode(snap)
 		}
-		printSnapshot(snap)
+		printSnapshot(os.Stdout, snap)
 		return nil
 
 	case "actions":
@@ -81,7 +85,15 @@ func run(argv []string) error {
 			if resolved.ID != argv[2] {
 				continue
 			}
-			return execute(resolved)
+			executor := launch.Tmux{Runner: collect.LocalRunner{}, InsideTmux: os.Getenv("TMUX") != ""}
+			out, err := execute(executor, resolved)
+			if err != nil {
+				return err
+			}
+			if out != "" {
+				fmt.Println(out)
+			}
+			return nil
 		}
 		return fmt.Errorf("action %q is not available for %q (available: %s)",
 			argv[2], argv[1], strings.Join(actionIDs(available), ", "))
@@ -89,22 +101,19 @@ func run(argv []string) error {
 	return fmt.Errorf("unknown command %q\n\n%s", argv[0], usage)
 }
 
-func execute(resolved action.Resolved) error {
-	executor := launch.Tmux{Runner: collect.LocalRunner{}, InsideTmux: os.Getenv("TMUX") != ""}
-	var out string
-	var err error
+// execute takes the executor as a parameter rather than building one, so the
+// where-dispatch is testable without touching tmux.
+func execute(executor launch.Executor, resolved action.Resolved) (string, error) {
 	if resolved.Where == wdconf.WhereCapture {
-		out, err = executor.Capture(resolved)
-	} else {
-		out, err = executor.Pane(resolved)
+		return executor.Capture(resolved)
 	}
-	if err != nil {
-		return err
-	}
-	if out != "" {
-		fmt.Println(out)
-	}
-	return nil
+	return executor.Pane(resolved)
+}
+
+// snapshotFailed distinguishes "nothing to show" from "every collector broke".
+// Without it `wd ls --json | jq` cannot tell an empty list from a broken git.
+func snapshotFailed(workspaces int, warnings []string) bool {
+	return workspaces == 0 && len(warnings) > 0
 }
 
 func actionIDs(resolved []action.Resolved) []string {
@@ -137,7 +146,7 @@ func loadSnapshot(cfg wdconf.Config) (workspace.Snapshot, []string) {
 	return workspace.Index(records, sessions), warnings
 }
 
-func printSnapshot(snap workspace.Snapshot) {
+func printSnapshot(out io.Writer, snap workspace.Snapshot) {
 	for _, ws := range snap.Workspaces {
 		facets := strings.Join(ws.Facets(), ",")
 		if facets == "" {
@@ -151,9 +160,9 @@ func printSnapshot(snap workspace.Snapshot) {
 		if len(names) > 0 {
 			detail = "  [" + strings.Join(names, "; ") + "]"
 		}
-		fmt.Printf("%-8s %-20s %-34s %-18s%s\n", ws.ID.Host, ws.RepoLabel, ws.ID.Branch, facets, detail)
+		fmt.Fprintf(out, "%-8s %-20s %-34s %-18s%s\n", ws.ID.Host, ws.RepoLabel, ws.ID.Branch, facets, detail)
 	}
 	for _, orphan := range snap.Orphans {
-		fmt.Printf("%-8s %-20s %-34s %-18s\n", orphan.Host, "(unlinked)", orphan.Session.Name, "session")
+		fmt.Fprintf(out, "%-8s %-20s %-34s %-18s\n", orphan.Host, "(unlinked)", orphan.Session.Name, "session")
 	}
 }

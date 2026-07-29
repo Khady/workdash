@@ -13,7 +13,11 @@ type Repo struct {
 
 var (
 	worktreeArgv = []string{"git", "worktree", "list", "--porcelain"}
-	branchArgv   = []string{"git", "for-each-ref", "--format=%(refname:short)", "refs/heads"}
+	// lstrip=2 drops exactly "refs/heads/", matching how parseWorktrees keys a
+	// branch. %(refname:short) would instead give the shortest unambiguous
+	// name, so a branch sharing a name with a tag comes back as "heads/v1.0"
+	// and never merges with its own worktree.
+	branchArgv = []string{"git", "for-each-ref", "--format=%(refname:lstrip=2)", "refs/heads"}
 )
 
 func Git(runner Runner, host string, repo Repo) ([]workspace.GitRecord, error) {
@@ -42,12 +46,18 @@ func Git(runner Runner, host string, repo Repo) ([]workspace.GitRecord, error) {
 // parseWorktrees reads `git worktree list --porcelain`. A detached worktree
 // yields no record because there is no branch to key a workspace on, but it
 // still counts as a block so only the genuinely first worktree is main.
+//
+// A bare block is different: in a bare layout git lists the repository itself
+// first, and it holds no checkout at all. It must not count, or the first real
+// worktree would be reported as a secondary one.
 func parseWorktrees(out, host string, repo Repo) []workspace.GitRecord {
 	records := []workspace.GitRecord{}
 	path, head, branch := "", "", ""
+	bare := false
 	seen := 0
 	flush := func() {
-		if path == "" {
+		defer func() { path, head, branch, bare = "", "", "", false }()
+		if path == "" || bare {
 			return
 		}
 		isMain := seen == 0
@@ -59,7 +69,6 @@ func parseWorktrees(out, host string, repo Repo) []workspace.GitRecord {
 				Worktree:  &workspace.Worktree{Path: path, Head: head, IsMain: isMain},
 			})
 		}
-		path, head, branch = "", "", ""
 	}
 	for _, line := range strings.Split(out, "\n") {
 		switch {
@@ -70,6 +79,8 @@ func parseWorktrees(out, host string, repo Repo) []workspace.GitRecord {
 			head = strings.TrimPrefix(line, "HEAD ")
 		case strings.HasPrefix(line, "branch refs/heads/"):
 			branch = strings.TrimPrefix(line, "branch refs/heads/")
+		case strings.TrimSpace(line) == "bare":
+			bare = true
 		}
 	}
 	flush()

@@ -33,12 +33,12 @@ func Index(git []GitRecord, sessions []SessionRecord) Snapshot {
 	for _, record := range git {
 		existing, ok := byID[record.ID]
 		if !ok {
-			byID[record.ID] = &Workspace{ID: record.ID, RepoLabel: record.RepoLabel, Worktree: record.Worktree}
+			byID[record.ID] = &Workspace{ID: record.ID, RepoLabel: record.RepoLabel, Worktree: copyWorktree(record.Worktree)}
 			order = append(order, record.ID)
 			continue
 		}
 		if existing.Worktree == nil {
-			existing.Worktree = record.Worktree
+			existing.Worktree = copyWorktree(record.Worktree)
 		}
 		if existing.RepoLabel == "" {
 			existing.RepoLabel = record.RepoLabel
@@ -83,4 +83,14 @@ func Index(git []GitRecord, sessions []SessionRecord) Snapshot {
 		return orphans[i].Session.Name < orphans[j].Session.Name
 	})
 	return Snapshot{Workspaces: workspaces, Orphans: orphans}
+}
+
+// copyWorktree keeps Index honest about being a pure merge: the returned
+// snapshot must not alias facet structs the caller still holds.
+func copyWorktree(worktree *Worktree) *Worktree {
+	if worktree == nil {
+		return nil
+	}
+	copied := *worktree
+	return &copied
 }

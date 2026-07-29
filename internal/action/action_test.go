@@ -91,3 +91,38 @@ func TestResolveCarriesHostFromWorkspace(t *testing.T) {
 		t.Fatalf("resolved = %+v, want host asia", got)
 	}
 }
+
+func TestResolveKeepsNonPlaceholderBraceSpansLiteral(t *testing.T) {
+	defs := []wdconf.Action{{ID: "awk", Where: "capture",
+		Argv: []string{"awk", "{print $1}", "{path}/go.mod"}, Cwd: "{path}"}}
+	got := Resolve(ws(), defs)
+	if len(got) != 1 {
+		t.Fatalf("resolved = %+v, want the awk action to survive", got)
+	}
+	if got[0].Argv[1] != "{print $1}" {
+		t.Fatalf("argv[1] = %q, want the awk program untouched", got[0].Argv[1])
+	}
+	if got[0].Argv[2] != "/wt/topic/go.mod" {
+		t.Fatalf("argv[2] = %q, want the placeholder still substituted", got[0].Argv[2])
+	}
+}
+
+func TestResolveStillDropsKnownPlaceholderWithoutValue(t *testing.T) {
+	defs := []wdconf.Action{{ID: "open-pr", Where: "capture", Argv: []string{"xdg-open", "{pr_url}"}, Cwd: "{path}"}}
+	if got := Resolve(ws(), defs); len(got) != 0 {
+		t.Fatalf("resolved = %+v, want none: {pr_url} is known but has no value here", got)
+	}
+}
+
+func TestResolveHonoursNegatedFacetNeeds(t *testing.T) {
+	defs := []wdconf.Action{{ID: "gwt", Needs: []string{"!" + workspace.FacetWorktree},
+		Where: "pane", Argv: []string{"gwt", "{branch}"}, Cwd: "{repo}"}}
+	if got := Resolve(ws(), defs); len(got) != 0 {
+		t.Fatalf("resolved = %+v, want none: workspace already has a worktree", got)
+	}
+	bare := workspace.Workspace{ID: workspace.ID{Host: "local", Repo: "/repo", Branch: "topic"}}
+	got := Resolve(bare, defs)
+	if len(got) != 1 || got[0].ID != "gwt" {
+		t.Fatalf("resolved = %+v, want gwt on a workspace with no worktree", got)
+	}
+}

@@ -12,10 +12,15 @@ var tmuxArgv = []string{"tmux", "list-sessions", "-F",
 
 // Tmux lists sessions on a host. No tmux server is the common case on a fresh
 // machine, not a failure, so it reports an empty list rather than an error.
+//
+// Everything else must surface. tmux exits 1 for unrelated faults too — an
+// unwritable socket directory, for one — and reporting those as "no sessions"
+// silently strips the session facet from every workspace, which the user reads
+// as their sessions having died.
 func Tmux(runner Runner, host string) ([]workspace.SessionRecord, error) {
 	out, err := runner.Run("", tmuxArgv)
 	if err != nil {
-		if strings.Contains(out, "no server running") || strings.Contains(err.Error(), "exit status 1") {
+		if noServer(err) {
 			return nil, nil
 		}
 		return nil, err
@@ -38,4 +43,20 @@ func Tmux(runner Runner, host string) ([]workspace.SessionRecord, error) {
 		})
 	}
 	return records, nil
+}
+
+// noServer reports whether a failed `tmux list-sessions` means only that there
+// is no server to talk to. tmux says so on stderr — "no server running on
+// <socket>", or a connect error naming the absent socket — never on stdout, and
+// the exit status is 1 either way, so the message text is the only signal.
+func noServer(err error) bool {
+	text := Stderr(err)
+	if text == "" {
+		// A Runner that does not capture stderr, such as one tunnelling over
+		// ssh, still folds the message into its error.
+		text = err.Error()
+	}
+	text = strings.ToLower(text)
+	return strings.Contains(text, "no server running") ||
+		strings.Contains(text, "no such file or directory")
 }

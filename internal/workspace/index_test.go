@@ -89,3 +89,13 @@ func TestIndexSortsWorkspaces(t *testing.T) {
 		}
 	}
 }
+
+func TestIndexDoesNotAliasCallerWorktrees(t *testing.T) {
+	worktree := &Worktree{Path: "/wt/topic"}
+	git := []GitRecord{{ID: ID{Host: "local", Repo: "/repo", Branch: "topic"}, Worktree: worktree}}
+	snap := Index(git, nil)
+	worktree.Path = "/mutated"
+	if got := snap.Workspaces[0].Worktree.Path; got != "/wt/topic" {
+		t.Fatalf("worktree path = %q, want /wt/topic: Index must not alias its input", got)
+	}
+}

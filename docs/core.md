@@ -55,9 +55,24 @@ where = "pane"           # pane | capture — replaces run + scope + relaunch
 argv = ["claude"]
 ```
 
+`needs` can also assert *absence* with a `!` prefix. Facet absence is a
+first-class state, so "create the worktree" belongs only where there isn't one:
+
+```toml
+[[actions]]
+id = "gwt"
+needs = ["!worktree"]    # offered only when the branch has no worktree yet
+```
+
 `shell = true` runs the command through `bash -ic` so shell functions from your
 rc resolve. That is the single place in the codebase where a command becomes a
 quoted string, and it exists precisely so workdash can call `gwt`.
+
+Only the documented placeholders — `{path}`, `{branch}`, `{repo}`, `{host}`,
+`{session}`, `{pr_url}`, `{pr_number}` — are substituted. Any other brace span
+is passed through untouched, so `awk '{print $1}'` and `find -name '*.{go,md}'`
+work as actions. A *known* placeholder with no value for a given workspace makes
+the action inapplicable rather than producing a command with a hole in it.
 
 ## Usage
 
@@ -76,6 +91,23 @@ branches with slashes.
 creates a detached session when you are not. Workdash never spawns a terminal
 emulator and never hands a shell back to its caller — which is why the terminal
 you use stopped being an architectural concern.
+
+## Known gaps
+
+Two things a code review surfaced that are deliberately left as-is for now:
+
+- **`Pane` inside tmux creates a window the collector cannot attribute back.**
+  `tmux new-window` runs in the *calling* client's session, but `collect.Tmux`
+  lists sessions only — so a window opened for workspace B while you sit in
+  session A never appears as a facet of B. Closing this needs a window-level
+  collector (`tmux list-panes -a` with `#{pane_current_path}`), which is a model
+  change: facets would gain windows alongside sessions. It belongs with the
+  agent-status work, not here.
+- **`{session}` means the first session** when a workspace has several. Tmux
+  orders them alphabetically, so that is arguably an arbitrary choice — but
+  dropping the action entirely when there are two sessions would leave you
+  unable to attach at all, which is worse. Choosing between several sessions is
+  a job for a frontend that can ask.
 
 ## Not in this slice
 
