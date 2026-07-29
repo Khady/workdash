@@ -38,6 +38,7 @@ wd ls                                    # every workspace and its facets
 wd ls --json                             # the same, for scripts
 wd actions asia:monorepo:louis/x         # what can I do on this workspace
 wd run asia:monorepo:louis/x shell       # do it
+wd refresh                               # refetch pull requests now
 ```
 
 `wd ls` output is one workspace per line:
@@ -131,10 +132,25 @@ Two settings that exist for real reasons:
 Git and tmux facts are local and batched: one ssh round trip per remote host,
 ~0.08s for asia's eleven repos.
 
-Pull requests are the only network source, so they go through a 90-second cache
-under `$XDG_CACHE_HOME/workdash`. A cold `wd ls` is ~3s, warm ~0.12s. That cache
-is disposable — deleting the directory is always safe, a corrupt entry counts as a
-miss, and a failed fetch is never stored.
+Pull requests are the only network source, and they are never allowed to make you
+wait. The cache under `$XDG_CACHE_HOME/workdash` has two limits:
+
+```toml
+pr_refresh_after = "15m"   # soft: past this, render the cache and refresh behind you
+pr_cache_ttl = "24h"       # hard: past this, block and refetch
+```
+
+So a cold run costs ~3s once, and every run after that is ~0.15s — including runs
+past the soft limit, which render instantly and kick off a detached refresh. Only
+a cache older than the hard limit blocks. `wd refresh` forces a refetch when you
+have just opened a pull request.
+
+Rate limits are not a concern: the GraphQL budget is 5000 points/hour and a query
+costs about one, so even refreshing every 15 minutes across two accounts uses well
+under 1%.
+
+That cache is disposable — deleting the directory is always safe, a corrupt entry
+counts as a miss, and a failed fetch is never stored.
 
 If a host is unreachable you get one warning naming it and the rest of the list
 still renders. `wd ls` exits non-zero only when *every* source failed, so a script
@@ -151,10 +167,9 @@ can tell "nothing to show" from "everything is broken".
 - **No remote GUI editors.** `code --remote` and `zed ssh://` from `config.toml`
   did not carry over: they need an ssh target inside the action language. Terminal
   editors are unaffected, since a remote `pane` runs where the code is.
-- **No recency data.** The old TUI sorted by last activity and grouped by kind,
-  which is what made a long list usable. The new core collects no timestamps, so
-  `wd ls` is alphabetical — the main reason a flat 800-row list reads worse than
-  the old dashboard.
+- **No grouping or colour yet.** `wd ls` sorts by recency, but it does not group
+  by kind or colour anything the way the old TUI did. That is the TUI's job and
+  the TUI does not exist yet.
 - **A window opened inside your current session is invisible to `wd ls`.** The
   collector lists sessions, not windows, so a window created for workspace B while
   you sit in session A is not reported as a facet of B.

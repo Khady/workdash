@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Khady/workdash/internal/workspace"
 )
@@ -41,9 +42,9 @@ func (f fakeRunner) keys() []string {
 
 func TestGitCollectsWorktreesAndBranches(t *testing.T) {
 	runner := fakeRunner{t: t, cwd: "/repo", out: map[string]string{
-		"git worktree list --porcelain": "worktree /repo\nHEAD abc123\nbranch refs/heads/main\n\n" +
+		strings.Join(worktreeArgv, " "): "worktree /repo\nHEAD abc123\nbranch refs/heads/main\n\n" +
 			"worktree /wt/topic\nHEAD def456\nbranch refs/heads/topic\n",
-		"git for-each-ref --format=%(refname:lstrip=2) refs/heads": "main\ntopic\nidle\n",
+		strings.Join(branchArgv, " "): "main\ntopic\nidle\n",
 	}}
 	records, err := Git(runner, "local", Repo{Root: "/repo", Label: "repo"})
 	if err != nil {
@@ -70,8 +71,8 @@ func TestGitCollectsWorktreesAndBranches(t *testing.T) {
 
 func TestGitSkipsDetachedWorktrees(t *testing.T) {
 	runner := fakeRunner{t: t, cwd: "/repo", out: map[string]string{
-		"git worktree list --porcelain":                            "worktree /repo\nHEAD abc123\ndetached\n",
-		"git for-each-ref --format=%(refname:lstrip=2) refs/heads": "",
+		strings.Join(worktreeArgv, " "): "worktree /repo\nHEAD abc123\ndetached\n",
+		strings.Join(branchArgv, " "):   "",
 	}}
 	records, err := Git(runner, "local", Repo{Root: "/repo", Label: "repo"})
 	if err != nil {
@@ -88,8 +89,8 @@ func TestGitSkipsDetachedWorktrees(t *testing.T) {
 // phantom one.
 func TestGitNamesBranchesThatCollideWithTags(t *testing.T) {
 	runner := fakeRunner{t: t, cwd: "/repo", out: map[string]string{
-		"git worktree list --porcelain":                            "worktree /repo\nHEAD abc123\nbranch refs/heads/v1.0\n",
-		"git for-each-ref --format=%(refname:lstrip=2) refs/heads": "v1.0\n",
+		strings.Join(worktreeArgv, " "): "worktree /repo\nHEAD abc123\nbranch refs/heads/v1.0\n",
+		strings.Join(branchArgv, " "):   "v1.0\n",
 	}}
 	records, err := Git(runner, "local", Repo{Root: "/repo", Label: "repo"})
 	if err != nil {
@@ -117,10 +118,10 @@ func TestGitNamesBranchesThatCollideWithTags(t *testing.T) {
 // leave the first real checkout looking like a secondary one.
 func TestGitBareBlockDoesNotConsumeMainSlot(t *testing.T) {
 	runner := fakeRunner{t: t, cwd: "/repo/bare.git", out: map[string]string{
-		"git worktree list --porcelain": "worktree /repo/bare.git\nbare\n\n" +
+		strings.Join(worktreeArgv, " "): "worktree /repo/bare.git\nbare\n\n" +
 			"worktree /repo/wt-main\nHEAD abc123\nbranch refs/heads/main\n\n" +
 			"worktree /repo/wt-topic\nHEAD def456\nbranch refs/heads/topic\n",
-		"git for-each-ref --format=%(refname:lstrip=2) refs/heads": "main\ntopic\n",
+		strings.Join(branchArgv, " "): "main\ntopic\n",
 	}}
 	records, err := Git(runner, "local", Repo{Root: "/repo/bare.git", Label: "repo"})
 	if err != nil {
@@ -168,5 +169,44 @@ func TestParseFullName(t *testing.T) {
 				t.Fatalf("parseFullName(%q) = %q, want %q", test.out, got, test.want)
 			}
 		})
+	}
+}
+
+// The commit time comes from the branch listing itself, so recency costs no extra
+// command and no extra ssh round trip.
+func TestParseBranchesReadsCommitTime(t *testing.T) {
+	records := parseBranches("main\t1700000000\ntopic\t1800000000\n", "local", Repo{Root: "/repo", Label: "repo"})
+	if len(records) != 2 {
+		t.Fatalf("records = %+v, want 2", records)
+	}
+	byBranch := map[string]*time.Time{}
+	for _, record := range records {
+		byBranch[record.ID.Branch] = record.CommittedAt
+	}
+	if got := byBranch["main"]; got == nil || got.Unix() != 1700000000 {
+		t.Fatalf("main committed at = %v", got)
+	}
+	if got := byBranch["topic"]; got == nil || got.Unix() != 1800000000 {
+		t.Fatalf("topic committed at = %v", got)
+	}
+}
+
+// An older git, or a ref with no date, must still yield the branch.
+func TestParseBranchesToleratesAMissingCommitTime(t *testing.T) {
+	records := parseBranches("main\ntopic\t\n", "local", Repo{Root: "/repo", Label: "repo"})
+	if len(records) != 2 {
+		t.Fatalf("records = %+v, want both branches", records)
+	}
+	for _, record := range records {
+		if record.CommittedAt != nil {
+			t.Fatalf("record %+v should have no date", record)
+		}
+	}
+}
+
+func TestBranchArgvAsksForTheCommitDate(t *testing.T) {
+	joined := strings.Join(branchArgv, " ")
+	if !strings.Contains(joined, "committerdate:unix") {
+		t.Fatalf("branch argv = %q, want the commit date in the format", joined)
 	}
 }

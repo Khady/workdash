@@ -10,8 +10,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Khady/workdash/internal/action"
@@ -21,14 +23,49 @@ import (
 	"github.com/Khady/workdash/internal/workspace"
 )
 
-// prCacheTTL is short enough that a PR opened a minute ago shows up, and long
-// enough that a burst of commands pays for one fetch.
-const prCacheTTL = 90 * time.Second
+// prDecision is what to do about one account's pull requests.
+type prDecision struct {
+	useCache            bool
+	refreshInBackground bool
+	fetchNow            bool
+}
+
+// prPolicy separates "old enough to refresh" from "too old to show".
+//
+// Below the soft limit the cache is simply used. Past it the cache is still what
+// you see — an interactive picker that blocks for three seconds on api.github.com
+// is worse than a list that is fifteen minutes stale — and a refresh is kicked
+// off behind you. Only past the hard limit is waiting the lesser evil.
+func prPolicy(cached bool, age, ttl, refreshAfter time.Duration) prDecision {
+	if !cached || age >= ttl {
+		return prDecision{fetchNow: true}
+	}
+	return prDecision{useCache: true, refreshInBackground: age >= refreshAfter}
+}
+
+func prCacheFor(cfg wdconf.Config) collect.PRCache {
+	return collect.PRCache{Dir: collect.DefaultPRCacheDir(), TTL: cfg.PRCacheTTL, Now: time.Now}
+}
+
+// spawnBackgroundRefresh re-execs wd detached, because a goroutine would die with
+// this process the moment the list is printed.
+func spawnBackgroundRefresh() {
+	self, err := os.Executable()
+	if err != nil {
+		return
+	}
+	cmd := exec.Command(self, "refresh")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err == nil {
+		_ = cmd.Process.Release()
+	}
+}
 
 const usage = `usage:
   wd ls [--json]              list workspaces
   wd actions <selector>       list actions available for a workspace
   wd run <selector> <action>  run an action on a workspace
+  wd refresh                  refetch pull requests now
 
 <selector> is a branch name, or repo:branch when a branch exists in several repos.`
 
@@ -63,6 +100,22 @@ func run(argv []string) error {
 			return encoder.Encode(snap)
 		}
 		printSnapshot(os.Stdout, snap)
+		return nil
+
+	case "refresh":
+		// Refetch every account with the caller waiting. Run by hand when you have
+		// just opened a pull request, and by the detached background refresh.
+		fetched := 0
+		for _, account := range accountsToFetch(cfg) {
+			records, err := collect.PRs(collect.LocalRunner{}, account)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "wd: %s: %v\n", accountLabel(account), err)
+				continue
+			}
+			prCacheFor(cfg).Store(account, records)
+			fetched += len(records)
+		}
+		fmt.Printf("refreshed %d pull requests\n", fetched)
 		return nil
 
 	case "actions":
@@ -208,15 +261,30 @@ func loadSnapshot(cfg wdconf.Config) (workspace.Snapshot, []string) {
 			results[i] = hostResult{host: host.Label, git: git, sessions: sessions, err: err}
 		}(i, host)
 	}
-	// GitHub is the only network source here, so it goes through a short-lived
-	// cache: repeated `wd ls` should cost milliseconds like the git and tmux
-	// facts, not a round trip to api.github.com.
-	cache := collect.PRCache{Dir: collect.DefaultPRCacheDir(), TTL: prCacheTTL, Now: time.Now}
+	// GitHub is the only network source here, so it is never allowed to make you
+	// wait: a cached list renders instantly however old it is, and the refetch
+	// happens in a detached process.
+	cache := prCacheFor(cfg)
+	refreshWanted := false
 	prs, prWarnings := collectPRs(cfg.GHAccounts(), func(account string) ([]workspace.PRRecord, error) {
-		return cache.Get(account, func(account string) ([]workspace.PRRecord, error) {
-			return collect.PRs(collect.LocalRunner{}, account)
-		})
+		records, age, ok := cache.Load(account)
+		decision := prPolicy(ok, age, cfg.PRCacheTTL, cfg.PRRefreshAfter)
+		if decision.refreshInBackground {
+			refreshWanted = true
+		}
+		if decision.useCache {
+			return records, nil
+		}
+		fetched, err := collect.PRs(collect.LocalRunner{}, account)
+		if err != nil {
+			return nil, err
+		}
+		cache.Store(account, fetched)
+		return fetched, nil
 	})
+	if refreshWanted {
+		spawnBackgroundRefresh()
+	}
 	wg.Wait()
 	snap, warnings := mergeHostResults(results)
 	return workspace.AttachPRs(snap, prs), append(warnings, prWarnings...)
@@ -234,6 +302,23 @@ func transportFor(host collect.Host) collect.Transport {
 // collectPRs fetches once per account rather than once per repo, concurrently,
 // and turns each failure into a warning. With no accounts configured it still
 // makes one call so gh's own active account is used.
+// accountsToFetch mirrors collectPRs: no configured accounts still means one
+// fetch, using gh's own active login.
+func accountsToFetch(cfg wdconf.Config) []string {
+	accounts := cfg.GHAccounts()
+	if len(accounts) == 0 {
+		return []string{""}
+	}
+	return accounts
+}
+
+func accountLabel(account string) string {
+	if account == "" {
+		return "github"
+	}
+	return account
+}
+
 func collectPRs(accounts []string, fetch func(string) ([]workspace.PRRecord, error)) ([]workspace.PRRecord, []string) {
 	if len(accounts) == 0 {
 		accounts = []string{""}

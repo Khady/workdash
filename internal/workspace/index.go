@@ -1,6 +1,9 @@
 package workspace
 
-import "sort"
+import (
+	"sort"
+	"time"
+)
 
 // GitRecord is one facet contribution from a git collector. A record with no
 // Worktree still creates a workspace: a branch that exists but is not checked
@@ -9,6 +12,7 @@ type GitRecord struct {
 	ID           ID
 	RepoLabel    string
 	RepoFullName string
+	CommittedAt  *time.Time
 	Worktree     *Worktree
 }
 
@@ -50,7 +54,8 @@ func Index(git []GitRecord, sessions []SessionRecord) Snapshot {
 		existing, ok := byID[record.ID]
 		if !ok {
 			byID[record.ID] = &Workspace{ID: record.ID, RepoLabel: record.RepoLabel,
-				RepoFullName: record.RepoFullName, Worktree: copyWorktree(record.Worktree)}
+				RepoFullName: record.RepoFullName, CommittedAt: record.CommittedAt,
+				Worktree: copyWorktree(record.Worktree)}
 			order = append(order, record.ID)
 			continue
 		}
@@ -62,6 +67,9 @@ func Index(git []GitRecord, sessions []SessionRecord) Snapshot {
 		}
 		if existing.RepoFullName == "" {
 			existing.RepoFullName = record.RepoFullName
+		}
+		if record.CommittedAt != nil && (existing.CommittedAt == nil || record.CommittedAt.After(*existing.CommittedAt)) {
+			existing.CommittedAt = record.CommittedAt
 		}
 	}
 
@@ -89,8 +97,17 @@ func Index(git []GitRecord, sessions []SessionRecord) Snapshot {
 	for _, id := range order {
 		workspaces = append(workspaces, *byID[id])
 	}
+	// Recency first: the branch touched an hour ago belongs at the top, whatever
+	// the alphabet says. Undated workspaces sort after dated ones so a source that
+	// reports no timestamps still lists predictably.
 	sort.SliceStable(workspaces, func(i, j int) bool {
 		a, b := workspaces[i], workspaces[j]
+		if (a.CommittedAt == nil) != (b.CommittedAt == nil) {
+			return a.CommittedAt != nil
+		}
+		if a.CommittedAt != nil && !a.CommittedAt.Equal(*b.CommittedAt) {
+			return a.CommittedAt.After(*b.CommittedAt)
+		}
 		if a.ID.Host != b.ID.Host {
 			return a.ID.Host < b.ID.Host
 		}

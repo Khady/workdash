@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
 
@@ -60,10 +61,28 @@ type Host struct {
 	Repos      []Repo   `toml:"repos"`
 }
 
+// Default pull request cache windows. The dashboard is opened reflexively and
+// refreshed deliberately only a few times a day, so the blocking limit is a day:
+// rendering from a cache that is hours old beats making every launch wait on the
+// network. The soft limit is short enough that a session that stays open keeps
+// catching up in the background.
+const (
+	DefaultPRCacheTTL     = 24 * time.Hour
+	DefaultPRRefreshAfter = 15 * time.Minute
+)
+
 type Config struct {
 	Repos   []Repo   `toml:"repos"`
 	Hosts   []Host   `toml:"hosts"`
 	Actions []Action `toml:"actions"`
+	// PRCacheTTL is the hard limit: pull requests older than this are refetched
+	// with the caller waiting. PRRefreshAfter is the soft one: past it the cache
+	// still renders and the refetch happens in the background. Both are parsed
+	// from the raw strings below so callers get a duration, not a string.
+	PRCacheTTL        time.Duration `toml:"-"`
+	PRRefreshAfter    time.Duration `toml:"-"`
+	RawPRCacheTTL     string        `toml:"pr_cache_ttl"`
+	RawPRRefreshAfter string        `toml:"pr_refresh_after"`
 }
 
 // GHAccounts lists the distinct `gh_account` values configured anywhere, local
@@ -114,6 +133,9 @@ func Load(path string) (Config, error) {
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return Config{}, err
 	}
+	if err := resolvePRCache(&cfg); err != nil {
+		return Config{}, err
+	}
 	if err := normalizeRepos(cfg.Repos, "", true); err != nil {
 		return Config{}, err
 	}
@@ -141,6 +163,45 @@ func Load(path string) (Config, error) {
 		}
 	}
 	return cfg, nil
+}
+
+// resolvePRCache turns the raw duration strings into the durations callers read,
+// filling in the defaults for the keys the config leaves out.
+func resolvePRCache(cfg *Config) error {
+	ttl, err := parseDuration("pr_cache_ttl", cfg.RawPRCacheTTL, DefaultPRCacheTTL)
+	if err != nil {
+		return err
+	}
+	refresh, err := parseDuration("pr_refresh_after", cfg.RawPRRefreshAfter, DefaultPRRefreshAfter)
+	if err != nil {
+		return err
+	}
+	// The soft limit has to be reachable before the hard one, or the background
+	// refresh never runs: the cache would already be past its TTL by the time the
+	// refresh window opened, and every read would block on the network instead.
+	if refresh > ttl {
+		return fmt.Errorf("`pr_refresh_after` (%s) must not exceed `pr_cache_ttl` (%s): the background refresh would never run before the blocking refetch", refresh, ttl)
+	}
+	cfg.PRCacheTTL = ttl
+	cfg.PRRefreshAfter = refresh
+	return nil
+}
+
+// parseDuration reads one optional duration key, returning fallback when it is
+// omitted.
+func parseDuration(key, raw string, fallback time.Duration) (time.Duration, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("`%s` %q is not a duration: use a form like %q or %q", key, raw, "24h", "15m")
+	}
+	if value <= 0 {
+		return 0, fmt.Errorf("`%s` %q must be a positive duration", key, raw)
+	}
+	return value, nil
 }
 
 // normalizeRepos cleans every root and fills in the labels the CLI names repos

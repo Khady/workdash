@@ -1,7 +1,9 @@
 package collect
 
 import (
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Khady/workdash/internal/workspace"
 )
@@ -17,7 +19,9 @@ var (
 	// branch. %(refname:short) would instead give the shortest unambiguous
 	// name, so a branch sharing a name with a tag comes back as "heads/v1.0"
 	// and never merges with its own worktree.
-	branchArgv = []string{"git", "for-each-ref", "--format=%(refname:lstrip=2)", "refs/heads"}
+	// The commit date rides along in the same command: recency ordering is what
+	// makes a long list navigable, and asking for it here costs nothing extra.
+	branchArgv = []string{"git", "for-each-ref", "--format=%(refname:lstrip=2)%09%(committerdate:unix)", "refs/heads"}
 	// The remote is what gives a repo its "owner/name", which is the only thing a
 	// pull request can be matched on: GitHub knows nothing about local paths.
 	remoteArgv = []string{"git", "remote", "get-url", "origin"}
@@ -77,17 +81,30 @@ func Git(runner Runner, host string, repo Repo) ([]workspace.GitRecord, error) {
 // acting on — it is exactly the state where "create the worktree" belongs.
 func parseBranches(out, host string, repo Repo) []workspace.GitRecord {
 	records := []workspace.GitRecord{}
-	for _, branch := range strings.Split(out, "\n") {
+	for _, line := range strings.Split(out, "\n") {
+		branch, date, _ := strings.Cut(strings.TrimRight(line, "\r"), "\t")
 		branch = strings.TrimSpace(branch)
 		if branch == "" {
 			continue
 		}
 		records = append(records, workspace.GitRecord{
-			ID:        workspace.ID{Host: host, Repo: repo.Root, Branch: branch},
-			RepoLabel: repo.Label,
+			ID:          workspace.ID{Host: host, Repo: repo.Root, Branch: branch},
+			RepoLabel:   repo.Label,
+			CommittedAt: parseUnixTime(date),
 		})
 	}
 	return records
+}
+
+// parseUnixTime tolerates an absent or unparseable date: a branch with no
+// timestamp is still a branch, it just sorts after the dated ones.
+func parseUnixTime(text string) *time.Time {
+	seconds, err := strconv.ParseInt(strings.TrimSpace(text), 10, 64)
+	if err != nil || seconds <= 0 {
+		return nil
+	}
+	at := time.Unix(seconds, 0)
+	return &at
 }
 
 // parseWorktrees reads `git worktree list --porcelain`. A detached worktree

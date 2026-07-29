@@ -120,3 +120,42 @@ func TestPRCacheDoesNotStoreFailures(t *testing.T) {
 }
 
 var errTest = errors.New("fetch failed")
+
+func TestPRCacheLoadReportsAgeAndMiss(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Unix(10000, 0)
+	cache := PRCache{Dir: dir, TTL: time.Hour, Now: func() time.Time { return now }}
+	if _, _, ok := cache.Load("acct"); ok {
+		t.Fatal("Load() reported a hit on an empty cache")
+	}
+	cache.Store("acct", []workspace.PRRecord{{FullName: "o/r", Branch: "main"}})
+	now = now.Add(5 * time.Minute)
+	records, age, ok := cache.Load("acct")
+	if !ok {
+		t.Fatal("Load() reported a miss after Store")
+	}
+	if age != 5*time.Minute {
+		t.Fatalf("age = %v, want 5m", age)
+	}
+	if len(records) != 1 {
+		t.Fatalf("records = %+v, want 1", records)
+	}
+}
+
+// Serving a stale entry instantly is the whole point: the popup must never block
+// on GitHub, so a caller decides what to do with the age rather than Load hiding
+// it behind a TTL.
+func TestPRCacheLoadStillReturnsAStaleEntry(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Unix(10000, 0)
+	cache := PRCache{Dir: dir, TTL: time.Minute, Now: func() time.Time { return now }}
+	cache.Store("acct", []workspace.PRRecord{{FullName: "o/r", Branch: "main"}})
+	now = now.Add(48 * time.Hour)
+	records, age, ok := cache.Load("acct")
+	if !ok || len(records) != 1 {
+		t.Fatalf("ok = %v records = %+v, want the stale entry served", ok, records)
+	}
+	if age < 48*time.Hour {
+		t.Fatalf("age = %v, want at least 48h", age)
+	}
+}

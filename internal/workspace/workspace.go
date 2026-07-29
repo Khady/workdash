@@ -7,7 +7,10 @@
 // session died on reboot is a workspace without a session facet.
 package workspace
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 const (
 	FacetWorktree = "worktree"
@@ -58,8 +61,12 @@ type Workspace struct {
 	// clone of that repo rather than just one.
 	RepoFullName string    `json:"repo_full_name,omitempty"`
 	Worktree     *Worktree `json:"worktree,omitempty"`
-	Sessions     []Session `json:"sessions,omitempty"`
-	PR           *PR       `json:"pr,omitempty"`
+	// CommittedAt is the branch tip's commit time, used for recency ordering. It
+	// is what makes a long list navigable, so it is collected even though nothing
+	// else needs it.
+	CommittedAt *time.Time `json:"committed_at,omitempty"`
+	Sessions    []Session  `json:"sessions,omitempty"`
+	PR          *PR        `json:"pr,omitempty"`
 }
 
 func (w Workspace) Has(facet string) bool {

@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // writeConfig drops body into a throwaway wd.toml and hands back its path, so a
@@ -665,5 +666,103 @@ attach_argv = ["mosh", "-p", "25300:25399"]
 	want := []string{"mosh", "-p", "25300:25399"}
 	if len(got) != len(want) || got[0] != "mosh" {
 		t.Fatalf("attach argv = %q, want %q", got, want)
+	}
+}
+
+// The dashboard is opened reflexively, so a stale-but-recent cache has to be
+// good enough to render from: the hard limit is long and the soft one short, and
+// only the soft one is crossed in the common case.
+func TestLoadDefaultsPRCacheDurations(t *testing.T) {
+	path := writeConfig(t, "[[repos]]\nroot = \"/home/me/code/repo\"\n")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.PRCacheTTL != 24*time.Hour {
+		t.Fatalf("pr cache ttl = %v, want %v", cfg.PRCacheTTL, 24*time.Hour)
+	}
+	if cfg.PRRefreshAfter != 15*time.Minute {
+		t.Fatalf("pr refresh after = %v, want %v", cfg.PRRefreshAfter, 15*time.Minute)
+	}
+}
+
+func TestLoadReadsPRCacheDurations(t *testing.T) {
+	path := writeConfig(t, "pr_cache_ttl = \"2h30m\"\npr_refresh_after = \"90s\"\n")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.PRCacheTTL != 2*time.Hour+30*time.Minute {
+		t.Fatalf("pr cache ttl = %v, want %v", cfg.PRCacheTTL, 2*time.Hour+30*time.Minute)
+	}
+	if cfg.PRRefreshAfter != 90*time.Second {
+		t.Fatalf("pr refresh after = %v, want %v", cfg.PRRefreshAfter, 90*time.Second)
+	}
+}
+
+// A bare number is the mistake to expect, since every other duration-shaped knob
+// in a config file is usually seconds. It has to fail at load rather than silently
+// leave the cache on its default.
+func TestLoadRejectsUnparseablePRCacheDuration(t *testing.T) {
+	for key, body := range map[string]string{
+		"pr_cache_ttl":     "pr_cache_ttl = \"900\"\n",
+		"pr_refresh_after": "pr_refresh_after = \"soon\"\n",
+	} {
+		_, err := Load(writeConfig(t, body))
+		if err == nil {
+			t.Fatalf("Load() with %s error = nil, want an error about the duration", key)
+		}
+		if !strings.Contains(err.Error(), key) {
+			t.Fatalf("Load() error = %v, want it to name `%s`", err, key)
+		}
+	}
+}
+
+// Zero or negative would mean "always expired", turning every launch into a
+// blocking fetch, so it is a misconfiguration rather than a way to disable the
+// cache.
+func TestLoadRejectsNonPositivePRCacheDuration(t *testing.T) {
+	cases := []struct{ key, body string }{
+		{"pr_cache_ttl", "pr_cache_ttl = \"0s\"\n"},
+		{"pr_cache_ttl", "pr_cache_ttl = \"-1h\"\n"},
+		{"pr_refresh_after", "pr_refresh_after = \"0s\"\n"},
+		{"pr_refresh_after", "pr_refresh_after = \"-5m\"\n"},
+	}
+	for _, tc := range cases {
+		_, err := Load(writeConfig(t, tc.body))
+		if err == nil {
+			t.Fatalf("Load() with %s error = nil, want an error about the non-positive duration", tc.body)
+		}
+		if !strings.Contains(err.Error(), tc.key) {
+			t.Fatalf("Load() error = %v, want it to name `%s`", err, tc.key)
+		}
+	}
+}
+
+// A soft limit past the hard one can never fire: the cache would hit the blocking
+// refetch first, so the background refresh would be dead config.
+func TestLoadRejectsPRRefreshAfterBeyondTTL(t *testing.T) {
+	path := writeConfig(t, "pr_cache_ttl = \"10m\"\npr_refresh_after = \"30m\"\n")
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load() error = nil, want an error about `pr_refresh_after` exceeding `pr_cache_ttl`")
+	}
+	for _, want := range []string{"pr_refresh_after", "pr_cache_ttl"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("Load() error = %v, want it to name `%s`", err, want)
+		}
+	}
+}
+
+// Equal limits are legal: it just means there is no window in which the refresh
+// happens in the background, not a contradiction.
+func TestLoadAcceptsPRRefreshAfterEqualToTTL(t *testing.T) {
+	path := writeConfig(t, "pr_cache_ttl = \"30m\"\npr_refresh_after = \"30m\"\n")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.PRCacheTTL != 30*time.Minute || cfg.PRRefreshAfter != 30*time.Minute {
+		t.Fatalf("ttl = %v, refresh after = %v, want both %v", cfg.PRCacheTTL, cfg.PRRefreshAfter, 30*time.Minute)
 	}
 }

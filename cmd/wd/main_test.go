@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Khady/workdash/internal/action"
 	"github.com/Khady/workdash/internal/launch"
@@ -201,5 +202,35 @@ func TestCollectPRsWithNoAccountsStillQueriesAmbientAuth(t *testing.T) {
 	}
 	if len(asked) != 1 || asked[0] != "" {
 		t.Fatalf("asked = %q, want a single ambient-auth call", asked)
+	}
+}
+
+func TestPRPolicyServesAFreshEntryWithoutRefreshing(t *testing.T) {
+	decision := prPolicy(true, 5*time.Minute, wdconf.DefaultPRCacheTTL, wdconf.DefaultPRRefreshAfter)
+	if !decision.useCache || decision.refreshInBackground || decision.fetchNow {
+		t.Fatalf("decision = %+v, want cache only", decision)
+	}
+}
+
+// Past the soft limit the list still renders instantly and the refetch happens
+// behind the user's back — the popup must never block on GitHub.
+func TestPRPolicyServesStaleAndRefreshesInBackground(t *testing.T) {
+	decision := prPolicy(true, 30*time.Minute, wdconf.DefaultPRCacheTTL, wdconf.DefaultPRRefreshAfter)
+	if !decision.useCache || !decision.refreshInBackground || decision.fetchNow {
+		t.Fatalf("decision = %+v, want stale cache plus a background refresh", decision)
+	}
+}
+
+func TestPRPolicyBlocksOnlyBeyondTheHardLimit(t *testing.T) {
+	decision := prPolicy(true, 48*time.Hour, wdconf.DefaultPRCacheTTL, wdconf.DefaultPRRefreshAfter)
+	if decision.useCache || !decision.fetchNow {
+		t.Fatalf("decision = %+v, want a blocking fetch", decision)
+	}
+}
+
+func TestPRPolicyFetchesWhenThereIsNoCache(t *testing.T) {
+	decision := prPolicy(false, 0, wdconf.DefaultPRCacheTTL, wdconf.DefaultPRRefreshAfter)
+	if decision.useCache || !decision.fetchNow {
+		t.Fatalf("decision = %+v, want a blocking fetch on a cold cache", decision)
 	}
 }

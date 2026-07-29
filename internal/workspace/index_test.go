@@ -1,6 +1,9 @@
 package workspace
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestIndexMergesRecordsByID(t *testing.T) {
 	git := []GitRecord{
@@ -186,5 +189,54 @@ func TestAttachPRsStillMatchesSameRepoPullRequests(t *testing.T) {
 	}})
 	if !got.Workspaces[0].Has(FacetPR) {
 		t.Fatal("a same-repo pull request must still attach")
+	}
+}
+
+// Recency is what makes hundreds of rows navigable: the branch you touched an
+// hour ago belongs at the top, not wherever the alphabet puts it.
+func TestIndexSortsByRecencyFirst(t *testing.T) {
+	old := time.Unix(1000, 0)
+	recent := time.Unix(9000, 0)
+	snap := Index([]GitRecord{
+		{ID: ID{Host: "local", Repo: "/a", Branch: "aaa-old"}, RepoLabel: "a", CommittedAt: &old},
+		{ID: ID{Host: "local", Repo: "/a", Branch: "zzz-recent"}, RepoLabel: "a", CommittedAt: &recent},
+	}, nil)
+	if snap.Workspaces[0].ID.Branch != "zzz-recent" {
+		t.Fatalf("order = %s then %s, want the recent branch first",
+			snap.Workspaces[0].ID.Branch, snap.Workspaces[1].ID.Branch)
+	}
+}
+
+// Branches with no date sort after dated ones, then alphabetically, so a repo
+// that reports no timestamps still lists predictably.
+func TestIndexPutsUndatedWorkspacesLast(t *testing.T) {
+	dated := time.Unix(1000, 0)
+	snap := Index([]GitRecord{
+		{ID: ID{Host: "local", Repo: "/a", Branch: "b-undated"}, RepoLabel: "a"},
+		{ID: ID{Host: "local", Repo: "/a", Branch: "a-undated"}, RepoLabel: "a"},
+		{ID: ID{Host: "local", Repo: "/a", Branch: "z-dated"}, RepoLabel: "a", CommittedAt: &dated},
+	}, nil)
+	got := []string{}
+	for _, ws := range snap.Workspaces {
+		got = append(got, ws.ID.Branch)
+	}
+	want := []string{"z-dated", "a-undated", "b-undated"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("order = %v, want %v", got, want)
+		}
+	}
+}
+
+func TestIndexKeepsTheNewestDateWhenRecordsMerge(t *testing.T) {
+	old := time.Unix(1000, 0)
+	recent := time.Unix(9000, 0)
+	id := ID{Host: "local", Repo: "/a", Branch: "topic"}
+	snap := Index([]GitRecord{
+		{ID: id, RepoLabel: "a", CommittedAt: &old},
+		{ID: id, RepoLabel: "a", CommittedAt: &recent},
+	}, nil)
+	if got := snap.Workspaces[0].CommittedAt; got == nil || !got.Equal(recent) {
+		t.Fatalf("committed at = %v, want %v", got, recent)
 	}
 }

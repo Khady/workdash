@@ -39,23 +39,41 @@ func DefaultPRCacheDir() string {
 	return filepath.Join(base, "workdash")
 }
 
+// Load returns a cached entry and its age, whatever that age is. Staleness is
+// deliberately the caller's decision: an interactive frontend wants to render a
+// day-old list instantly and refresh behind the user's back, which it cannot do
+// if the cache hides old entries.
+func (c PRCache) Load(account string) ([]workspace.PRRecord, time.Duration, bool) {
+	entry, ok := readEntry(filepath.Join(c.Dir, cacheFileName(account)))
+	if !ok {
+		return nil, 0, false
+	}
+	return entry.Records, c.now().Sub(entry.FetchedAt), true
+}
+
+func (c PRCache) Store(account string, records []workspace.PRRecord) {
+	writeEntry(filepath.Join(c.Dir, cacheFileName(account)), prCacheEntry{FetchedAt: c.now(), Records: records})
+}
+
+func (c PRCache) now() time.Time {
+	if c.Now != nil {
+		return c.Now()
+	}
+	return time.Now()
+}
+
 // Get returns the cached records for an account, fetching when the entry is
 // missing, stale or unreadable. A failed fetch is surfaced and not cached, so a
 // transient outage does not pin an empty result for the whole TTL.
 func (c PRCache) Get(account string, fetch func(string) ([]workspace.PRRecord, error)) ([]workspace.PRRecord, error) {
-	now := time.Now
-	if c.Now != nil {
-		now = c.Now
-	}
-	path := filepath.Join(c.Dir, cacheFileName(account))
-	if entry, ok := readEntry(path); ok && now().Sub(entry.FetchedAt) < c.TTL {
-		return entry.Records, nil
+	if records, age, ok := c.Load(account); ok && age < c.TTL {
+		return records, nil
 	}
 	records, err := fetch(account)
 	if err != nil {
 		return nil, err
 	}
-	writeEntry(path, prCacheEntry{FetchedAt: now(), Records: records})
+	c.Store(account, records)
 	return records, nil
 }
 
