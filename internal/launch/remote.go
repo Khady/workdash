@@ -83,17 +83,26 @@ func (r Remote) Attach(resolved action.Resolved) (string, error) {
 
 // attachArgv builds the local command that reaches an existing remote session.
 //
-// The remote part travels as ONE argv element beginning with a word: mosh keeps
-// scanning for its own options after the host, so a first token starting with "-"
-// makes it print usage and exit 255 — and since tmux closes a window whose command
-// dies, that failure looks like nothing happening at all.
+// The remote command is passed as SEPARATE argv elements, because the two
+// transports disagree about what they receive:
+//
+//   - ssh joins its arguments with spaces and hands the result to the remote
+//     shell, which re-parses it. Separate elements survive that.
+//   - mosh execvp's the arguments directly. A single pre-joined string makes it
+//     try to exec a program whose name contains spaces:
+//     "mosh-server: execvp: tmux attach -t=master: No such file or directory".
+//
+// mosh does keep scanning for its own options up to the host, so a transport
+// using it needs a "--" before the target — hence attach_argv ending in "--".
+// Both failures are invisible without looking: tmux closes a window whose command
+// dies, so a broken attach looks like nothing happening.
 func (r Remote) attachArgv(resolved action.Resolved, session string) []string {
 	transport := r.AttachArgv
 	if len(resolved.Attach) > 0 {
 		transport = resolved.Attach
 	}
-	return append(append([]string{}, transport...), r.Target,
-		shellquote.Join([]string{"tmux", "attach", "-t" + exactTarget(session)}))
+	return append(append(append([]string{}, transport...), r.Target),
+		"tmux", "attach", "-t"+exactTarget(session))
 }
 
 // Background is a local-desktop idea: the programs that need it are GUI apps on

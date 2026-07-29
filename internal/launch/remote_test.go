@@ -127,23 +127,22 @@ func TestRemotePaneReportsFailureToReachTheHost(t *testing.T) {
 	}
 }
 
-// mosh scans for its own options after the host, so a remote command whose first
-// token starts with "-" makes it print usage and exit 255 — which looked exactly
-// like "nothing happened", because tmux closes a window whose command dies. The
-// remote command therefore travels as one argv element that starts with a word.
-func TestRemotePaneSendsTheAttachCommandAsASingleWord(t *testing.T) {
+// The two transports disagree about the remote command: ssh re-parses it in the
+// remote shell, mosh execvp's it. Separate argv elements are the only form both
+// accept — a pre-joined string made mosh report
+// "execvp: tmux attach -t=master: No such file or directory" and the window died
+// silently.
+func TestRemotePaneSendsTheAttachCommandAsSeparateArguments(t *testing.T) {
 	runner := &recordRunner{sessions: map[string]bool{"topic": true}}
 	if _, err := remoteFixture(runner, true).Pane(remoteResolved()); err != nil {
 		t.Fatalf("Pane() error = %v", err)
 	}
 	local := runner.argv(len(runner.calls) - 1)
-	last := local[len(local)-1]
-	if !strings.HasPrefix(last, "tmux attach") {
-		t.Fatalf("attach element = %q, want one element beginning with \"tmux attach\"", last)
-	}
+	tail := local[len(local)-4:]
+	wantArgv(t, tail, []string{"me@asia", "tmux", "attach", "-t=topic"})
 	for _, arg := range local {
-		if strings.HasPrefix(arg, "-t=") {
-			t.Fatalf("argv = %q, want no bare -t element for mosh to misread", local)
+		if strings.Contains(arg, "tmux attach") {
+			t.Fatalf("argv = %q, want no pre-joined remote command: mosh execvp's it", local)
 		}
 	}
 }
