@@ -1,6 +1,8 @@
 # The workdash core
 
 This is the from-scratch core described in `docs/superpowers/plans/2026-07-28-workdash-core-rewrite.md`.
+It explains why the design is shaped this way; [using-wd.md](using-wd.md) covers
+how to use it.
 It lives beside the existing tree; the old `workdash` binary is untouched and
 still builds. The new entrypoint is `cmd/wd`.
 
@@ -171,23 +173,8 @@ the action inapplicable rather than producing a command with a hole in it.
 
 ## Usage
 
-```bash
-wd ls                                  # every workspace and its facets
-wd ls --json                           # same, for scripts
-wd actions rewrite/core-facets         # what can I do here
-wd run rewrite/core-facets agent       # launch claude in a tmux window
-```
-
-A selector is `[host:][repo:]branch`. Git forbids `:` in ref names and config
-validation forbids it in labels, so the split is unambiguous even for branches
-with slashes. A two-part selector means `repo:branch`, never `host:branch`, so
-host qualification is spelled out in full. Ambiguity errors list candidates
-fully qualified, so every candidate is a selector you can type back.
-
-`wd run` with a `pane` action opens a tmux window when you are inside tmux, and
-creates a detached session when you are not. Workdash never spawns a terminal
-emulator and never hands a shell back to its caller — which is why the terminal
-you use stopped being an architectural concern.
+See [using-wd.md](using-wd.md) for how this is driven day to day: the tmux popup,
+the three commands, selectors, adding actions, and the sharp edges.
 
 ## Known gaps
 

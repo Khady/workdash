@@ -3,6 +3,11 @@
 Terminal dashboard for GitHub PRs, git worktrees, local branches, and tmux
 sessions across your machine and configured SSH hosts.
 
+> **Note:** a from-scratch rewrite of the core lives alongside this one, with a
+> new `wd` entrypoint. Everything below documents the original `workdash` TUI,
+> which is unaffected. For the rewrite see [docs/using-wd.md](docs/using-wd.md)
+> (how to use it) and [docs/core.md](docs/core.md) (why it is built that way).
+
 ## Install
 
 ```bash
