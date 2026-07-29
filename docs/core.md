@@ -39,6 +39,37 @@ collect ──records──> workspace.Index ──Snapshot──> action.Resolv
 | `internal/launch` | `Pane` (tmux window) and `Capture` (run and return output) |
 | `cmd/wd` | CLI frontend: `ls`, `actions`, `run` |
 
+## Remote hosts
+
+```toml
+[[hosts]]
+label = "asia"
+ssh_target = "me@asia"
+# tmux defaults to on; set tmux = false to opt out
+
+[[hosts.repos]]
+root = "/home/me/Code/ahrefs/monorepo"    # interpreted on the remote host, so ~ is not expanded
+```
+
+A host is collected in **one SSH round trip**. `PlanFor` lists the commands a
+host needs, and `SSH` renders the whole plan into a single shell script piped
+through `ssh host bash -c`. Measured against a host with 11 repos: one ssh exec
+per git command took 2.72s with a warm `ControlMaster`; the batched form takes
+0.083s. Nothing is installed on the far side — the remote requirements are bash,
+git and tmux, exactly what workdash already assumed.
+
+Two things that are easy to get wrong here, both now pinned by tests:
+
+- **The script must be quoted for the remote shell.** ssh joins its command
+  arguments with spaces and lets the remote login shell re-parse them, so an
+  unquoted script makes `bash -c` take only the next word as its command. The
+  symptom was subtle: every host silently lost its *first* section's output.
+- **No `set -e`.** Each section is isolated so one unreadable repo cannot
+  truncate the host.
+
+Hosts are collected concurrently and degrade independently: an unreachable host
+contributes one warning and the rest of the list still renders.
+
 ## Config
 
 `~/.config/workdash/wd.toml`, or `$WD_CONFIG`. See `docs/wd.example.toml`.
