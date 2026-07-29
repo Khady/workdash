@@ -91,6 +91,34 @@ Anything sent over ssh is assembled as remote shell text with each argument
 quoted individually — never as one quoted blob, which would make the far side try
 to run a command whose name contains spaces.
 
+## Pull requests
+
+PRs are the only network source, so they are collected separately from git and
+tmux and attached afterwards with `workspace.AttachPRs`. Two consequences:
+
+- A failed or slow GitHub call degrades to *no pr facet*, never to no snapshot.
+  The git and tmux facts are local and fast; nothing about them should wait on
+  api.github.com.
+- A pull request is a fact about a branch, not about a machine, so it attaches to
+  every clone of that repo — the same PR shows on the local checkout and on the
+  remote one.
+
+The join key is `(repo full name, head branch)`. Full name comes from
+`git remote get-url origin`, collected as another section of the host plan, so it
+costs nothing extra.
+
+One `gh api graphql` call runs per distinct `gh_account`:
+
+```toml
+[[repos]]
+root = "/home/me/code/monorepo"
+gh_account = "louis-roche_ahrefs"    # optional; omit to use gh's active account
+```
+
+The account's token is fetched with `gh auth token --user <account>` and passed
+to `gh` in the environment, never in argv — `/proc/PID/cmdline` is world-readable
+on Linux while `/proc/PID/environ` is not.
+
 ## Config
 
 `~/.config/workdash/wd.toml`, or `$WD_CONFIG`. See `docs/wd.example.toml`.
