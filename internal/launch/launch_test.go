@@ -20,6 +20,10 @@ type recordedCall struct {
 type recordRunner struct {
 	calls []recordedCall
 	err   error
+	// out is what Run returns for commands the fake does not model specially,
+	// letting a test stand in for output the executor reads back — the grouped
+	// session's generated name, for instance.
+	out string
 	// sessions is the set of tmux sessions the fake server knows about. A
 	// `tmux has-session` probe answers from it and `tmux new-session` adds to
 	// it, so a second Pane on the same workspace sees the first one.
@@ -44,6 +48,9 @@ func (r *recordRunner) Run(cwd string, argv []string) (string, error) {
 			r.sessions = map[string]bool{}
 		}
 		r.sessions[name] = true
+	}
+	if r.out != "" {
+		return r.out, r.err
 	}
 	return "ok", r.err
 }
@@ -94,7 +101,7 @@ func TestPaneInsideTmuxOpensWindowNamedAfterWorkspace(t *testing.T) {
 	if len(runner.calls) != 1 {
 		t.Fatalf("calls = %d %q, want 1", len(runner.calls), runner.calls)
 	}
-	wantArgv(t, runner.argv(0), []string{"tmux", "new-window", "-n", "topic", "-c", "/wt/topic", "--", "claude"})
+	wantArgv(t, runner.argv(0), []string{"tmux", "new-window", "-P", "-F", "#{window_id}", "-n", "topic", "-c", "/wt/topic", "--", "claude"})
 	if runner.calls[0].cwd != "" {
 		t.Fatalf("cwd = %q, want empty", runner.calls[0].cwd)
 	}
@@ -166,7 +173,7 @@ func TestPaneWrapsShellActionsInInteractiveShell(t *testing.T) {
 	if _, err := tmux.Pane(resolved); err != nil {
 		t.Fatalf("Pane() error = %v", err)
 	}
-	wantArgv(t, runner.argv(0), []string{"tmux", "new-window", "-n", "topic", "-c", "/repo", "--", "bash", "-ic", `gwt 'my topic'`})
+	wantArgv(t, runner.argv(0), []string{"tmux", "new-window", "-P", "-F", "#{window_id}", "-n", "topic", "-c", "/repo", "--", "bash", "-ic", `gwt 'my topic'`})
 }
 
 func TestPaneFallsBackToActionIDWhenUnnamed(t *testing.T) {
@@ -175,7 +182,7 @@ func TestPaneFallsBackToActionIDWhenUnnamed(t *testing.T) {
 	if _, err := tmux.Pane(action.Resolved{ID: "agent", Argv: []string{"claude"}, Cwd: "/wt"}); err != nil {
 		t.Fatalf("Pane() error = %v", err)
 	}
-	wantArgv(t, runner.argv(0), []string{"tmux", "new-window", "-n", "agent", "-c", "/wt", "--", "claude"})
+	wantArgv(t, runner.argv(0), []string{"tmux", "new-window", "-P", "-F", "#{window_id}", "-n", "agent", "-c", "/wt", "--", "claude"})
 }
 
 func TestPaneReportsRunnerFailure(t *testing.T) {

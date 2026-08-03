@@ -40,6 +40,7 @@ collect ──records──> workspace.Index ──Snapshot──> action.Resolv
 | `internal/action` | Which actions apply to a workspace, and their concrete argv |
 | `internal/launch` | `Pane` (tmux window) and `Capture` (run and return output) |
 | `cmd/wd` | CLI frontend: `ls`, `actions`, `run` |
+| `cmd/wd-host` | Firefox native-messaging host: actions for the pull request you are looking at |
 
 ## Remote hosts
 
@@ -193,8 +194,22 @@ Two things a code review surfaced that are deliberately left as-is for now:
   unable to attach at all, which is worse. Choosing between several sessions is
   a job for a frontend that can ask.
 
+## Frontends
+
+`cmd/wd` (CLI), `cmd/wdt` (TUI) and `cmd/wd-host` (the Firefox native-messaging
+host) all sit on the same snapshot, the same `action.Resolve` and the same
+`dispatch.Execute`, so none of them can quietly disagree with the others about
+what exists or what running an action means.
+
+`wd-host` needs no daemon. Firefox uses one-shot `sendNativeMessage`, so it is
+spawned per message and exits; each message rebuilds the snapshot. That makes its
+action tokens plain references — workspace plus action id plus the pull request
+they were offered from — which are **revalidated against current state** when the
+button is clicked, rather than capabilities held in a server's memory. It is the
+stronger check: a token cannot outlive the facts it was minted from.
+
 ## Not yet built
 
-The daemon and its
-and its socket protocol, push-based freshness, a window-level collector, the
-TUI, and the browser popup.
+Push-based freshness and a window-level collector. The daemon and its socket
+protocol are not coming back — nothing in this design has state for a daemon to
+own.

@@ -13,9 +13,35 @@ func remoteFixture(runner Runner, insideTmux bool) Remote {
 	return Remote{
 		Runner:     runner,
 		Target:     "me@asia",
-		AttachArgv: []string{"mosh", "-p", "25300:25399", "me@asia"},
+		AttachArgv: []string{"mosh", "-p", "25300:25399", "--"},
 		Local:      Tmux{Runner: runner, InsideTmux: insideTmux},
 	}
+}
+
+// localWindow finds the local tmux new-window call. The last call is no longer it:
+// the window gets labelled with set-option afterwards.
+func localWindow(t *testing.T, runner *recordRunner) []string {
+	t.Helper()
+	for i := range runner.calls {
+		argv := runner.argv(i)
+		if len(argv) > 1 && argv[0] == "tmux" && argv[1] == "new-window" {
+			return argv
+		}
+	}
+	t.Fatalf("no local tmux new-window in %q", runner.calls)
+	return nil
+}
+
+// remoteCommands returns the command text sent over ssh, one per call.
+func remoteCommands(runner *recordRunner) []string {
+	out := []string{}
+	for i := range runner.calls {
+		argv := runner.argv(i)
+		if len(argv) > 0 && argv[0] == "ssh" {
+			out = append(out, argv[len(argv)-1])
+		}
+	}
+	return out
 }
 
 func remoteResolved() action.Resolved {
@@ -30,8 +56,9 @@ func TestRemotePaneCreatesRemoteSessionThenAttachesLocally(t *testing.T) {
 	if _, err := remoteFixture(runner, true).Pane(remoteResolved()); err != nil {
 		t.Fatalf("Pane() error = %v", err)
 	}
-	if len(runner.calls) != 3 {
-		t.Fatalf("calls = %d %q, want has-session, new-session, local attach", len(runner.calls), runner.calls)
+	// has-session, new-session, the local window, then one set-option per label.
+	if len(runner.calls) != 6 {
+		t.Fatalf("calls = %d %q, want the full create-then-view sequence", len(runner.calls), runner.calls)
 	}
 	for i, want := range []string{"has-session", "new-session"} {
 		if runner.argv(i)[0] != "ssh" {
@@ -41,16 +68,16 @@ func TestRemotePaneCreatesRemoteSessionThenAttachesLocally(t *testing.T) {
 			t.Fatalf("call %d = %q, want it to %s", i, runner.argv(i), want)
 		}
 	}
-	local := runner.argv(2)
+	local := localWindow(t, runner)
 	if local[0] != "tmux" || local[1] != "new-window" {
 		t.Fatalf("third call = %q, want a local tmux window", local)
 	}
 	joined := strings.Join(local, " ")
-	if !strings.Contains(joined, "mosh -p 25300:25399 me@asia") {
+	if !strings.Contains(joined, "mosh -p 25300:25399 -- me@asia") {
 		t.Fatalf("third call = %q, want it to attach over mosh", local)
 	}
-	if !strings.Contains(joined, "tmux attach") {
-		t.Fatalf("third call = %q, want it to attach to the remote session", local)
+	if !strings.Contains(joined, "tmux new-session -t=") {
+		t.Fatalf("third call = %q, want it to view the remote session", local)
 	}
 }
 
@@ -61,15 +88,17 @@ func TestRemotePaneNamesLocalWindowWithHost(t *testing.T) {
 	if _, err := remoteFixture(runner, true).Pane(remoteResolved()); err != nil {
 		t.Fatalf("Pane() error = %v", err)
 	}
-	local := runner.argv(2)
+	local := localWindow(t, runner)
 	name := ""
 	for i, arg := range local {
 		if arg == "-n" && i+1 < len(local) {
 			name = local[i+1]
 		}
 	}
-	if name != "asia/topic" {
-		t.Fatalf("local window name = %q, want asia/topic", name)
+	// The transport is part of the name: without it there is no way to tell a mosh
+	// view from an ssh one by looking at your window list.
+	if name != "mosh·asia/topic" {
+		t.Fatalf("local window name = %q, want mosh·asia/topic", name)
 	}
 }
 
@@ -133,13 +162,13 @@ func TestRemotePaneReportsFailureToReachTheHost(t *testing.T) {
 // "execvp: tmux attach -t=master: No such file or directory" and the window died
 // silently.
 func TestRemotePaneSendsTheAttachCommandAsSeparateArguments(t *testing.T) {
-	runner := &recordRunner{sessions: map[string]bool{"topic": true}}
+	runner := &recordRunner{sessions: map[string]bool{"topic": true}, out: "topic-1"}
 	if _, err := remoteFixture(runner, true).Pane(remoteResolved()); err != nil {
 		t.Fatalf("Pane() error = %v", err)
 	}
-	local := runner.argv(len(runner.calls) - 1)
+	local := localWindow(t, runner)
 	tail := local[len(local)-4:]
-	wantArgv(t, tail, []string{"me@asia", "tmux", "attach", "-t=topic"})
+	wantArgv(t, tail, []string{"me@asia", "tmux", "new-session", "-t=topic"})
 	for _, arg := range local {
 		if strings.Contains(arg, "tmux attach") {
 			t.Fatalf("argv = %q, want no pre-joined remote command: mosh execvp's it", local)
@@ -158,9 +187,11 @@ func TestRemotePaneReusesTheWorkspacesExistingSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Pane() error = %v", err)
 	}
-	for i := range runner.calls {
-		if joined := strings.Join(runner.argv(i), " "); strings.Contains(joined, "new-session") {
-			t.Fatalf("call %d = %q, want no new session when one already exists", i, runner.argv(i))
+	// A grouped view session (new-session -t) is expected; what must not happen is
+	// creating a second *named* session for the same worktree.
+	for _, command := range remoteCommands(runner) {
+		if strings.Contains(command, "new-session") && strings.Contains(command, " -s ") {
+			t.Fatalf("remote command %q created a second named session", command)
 		}
 	}
 	all := ""
@@ -189,9 +220,9 @@ func TestRemotePaneUsesTheActionsOwnAttachWhenGiven(t *testing.T) {
 	if _, err := remote.Pane(resolved); err != nil {
 		t.Fatalf("Pane() error = %v", err)
 	}
-	local := runner.argv(len(runner.calls) - 1)
+	local := localWindow(t, runner)
 	joined := strings.Join(local, " ")
-	if !strings.Contains(joined, "mosh -p 25300:25399 -- me@asia tmux attach") {
+	if !strings.Contains(joined, "mosh -p 25300:25399 -- me@asia tmux new-session") {
 		t.Fatalf("argv = %q, want mosh with the target after --", local)
 	}
 	if strings.Contains(joined, "ssh -A") {
@@ -206,15 +237,15 @@ func TestRemotePaneFallsBackToTheHostAttach(t *testing.T) {
 	if _, err := remote.Pane(remoteResolved()); err != nil {
 		t.Fatalf("Pane() error = %v", err)
 	}
-	joined := strings.Join(runner.argv(len(runner.calls)-1), " ")
-	if !strings.Contains(joined, "ssh -A -t me@asia tmux attach") {
+	joined := strings.Join(localWindow(t, runner), " ")
+	if !strings.Contains(joined, "ssh -A -t me@asia tmux new-session") {
 		t.Fatalf("argv = %q, want the host's ssh attach with the target appended", joined)
 	}
 }
 
 // Attaching to a remote session must not create a window there: it opens a local
 // window that connects to the session as it is.
-func TestRemoteAttachOpensALocalWindowAndCreatesNothingRemote(t *testing.T) {
+func TestRemoteAttachAddsNoWindowToTheRemoteSession(t *testing.T) {
 	runner := &recordRunner{sessions: map[string]bool{"gwt-monorepo-louis-x": true}}
 	resolved := remoteResolved()
 	resolved.Session = "gwt-monorepo-louis-x"
@@ -222,20 +253,66 @@ func TestRemoteAttachOpensALocalWindowAndCreatesNothingRemote(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Attach() error = %v", err)
 	}
-	if len(runner.calls) != 1 {
-		t.Fatalf("calls = %d %q, want only the local window", len(runner.calls), runner.calls)
+	// Attaching creates a grouped view session, which self-destructs — but it must
+	// not add a window to the work, which is what separates Attach from Pane.
+	for _, command := range remoteCommands(runner) {
+		if strings.Contains(command, "new-window") {
+			t.Fatalf("remote command %q added a window; attach must create no work", command)
+		}
+		if strings.Contains(command, "new-session") && strings.Contains(command, " -s ") {
+			t.Fatalf("remote command %q created a named session", command)
+		}
 	}
-	joined := strings.Join(runner.argv(0), " ")
-	if !strings.HasPrefix(joined, "tmux new-window") {
-		t.Fatalf("call = %q, want a local tmux window", runner.argv(0))
-	}
-	if strings.Contains(joined, "new-session") || strings.Contains(joined, "ssh -o") {
-		t.Fatalf("call = %q, want nothing created on the far side", runner.argv(0))
-	}
-	if !strings.Contains(joined, "gwt-monorepo-louis-x") {
-		t.Fatalf("call = %q, want it to attach to the existing session", runner.argv(0))
+	if !strings.Contains(strings.Join(remoteCommands(runner), "\n"), "gwt-monorepo-louis-x") {
+		t.Fatalf("remote commands %q, want the existing session viewed", remoteCommands(runner))
 	}
 	if !strings.Contains(out, "gwt-monorepo-louis-x") {
 		t.Fatalf("message = %q", out)
+	}
+}
+
+// Attaching twice to one session makes two clients of it, and tmux clients on a
+// session share the current window — so opening vim and then a shell on the same
+// branch gave two local windows showing the same remote window, moving together.
+// A grouped session (new-session -t) shares the windows with an independent
+// current-window, which is tmux's own idiom for two views of one set of windows.
+func TestRemoteAttachViewsThroughAGroupedSession(t *testing.T) {
+	runner := &recordRunner{sessions: map[string]bool{"gwt-x": true}, out: "gwt-x-1"}
+	resolved := remoteResolved()
+	resolved.Session = "gwt-x"
+	if _, err := remoteFixture(runner, true).Attach(resolved); err != nil {
+		t.Fatalf("Attach() error = %v", err)
+	}
+	joined := strings.Join(localWindow(t, runner), " ")
+	if !strings.Contains(joined, "tmux new-session -t=gwt-x") {
+		t.Fatalf("attach = %q, want new-session -t: it creates the grouped view and attaches in one step", joined)
+	}
+	if strings.Contains(joined, "tmux attach") {
+		t.Fatalf("attach = %q, want no plain attach: that shares the base session's current window", joined)
+	}
+	// Nothing may be created before the attach, or a failed attach leaves a view
+	// session behind on the host.
+	for _, command := range remoteCommands(runner) {
+		if strings.Contains(command, "new-session") {
+			t.Fatalf("remote command %q pre-created a session; the attach itself must create the view", command)
+		}
+	}
+}
+
+// The view session must clean itself up, or every editor you open leaves a
+// session behind on the host.
+func TestRemoteAttachCreatesNothingBeforeAttaching(t *testing.T) {
+	runner := &recordRunner{sessions: map[string]bool{"gwt-x": true}, out: "gwt-x-1"}
+	resolved := remoteResolved()
+	resolved.Session = "gwt-x"
+	if _, err := remoteFixture(runner, true).Attach(resolved); err != nil {
+		t.Fatalf("Attach() error = %v", err)
+	}
+	all := ""
+	for i := range runner.calls {
+		all += strings.Join(runner.argv(i), " ") + "\n"
+	}
+	if strings.Contains(all, "destroy-unattached") {
+		t.Fatalf("calls:\n%s\nwant no pre-created session to have to clean up", all)
 	}
 }

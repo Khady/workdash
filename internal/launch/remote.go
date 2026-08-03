@@ -2,6 +2,7 @@ package launch
 
 import (
 	"fmt"
+
 	"github.com/Khady/workdash/internal/action"
 	"github.com/Khady/workdash/internal/shellquote"
 )
@@ -44,22 +45,8 @@ func (r Remote) Pane(resolved action.Resolved) (string, error) {
 	if _, err := r.ssh(append(create, argv...)); err != nil {
 		return "", err
 	}
-	// The remote command travels as ONE argv element beginning with a word.
-	// mosh keeps scanning for its own options after the host, so a first token
-	// starting with "-" makes it print usage and exit 255 — and because tmux
-	// closes a window whose command dies, that failure looks like nothing
-	// happening at all.
-	attach := r.attachArgv(resolved, name)
-	local := action.Resolved{
-		ID:   resolved.ID,
-		Name: resolved.Host + "/" + paneName(resolved),
-		Argv: attach,
-		// The attaching window has no meaningful local directory: its cwd lives
-		// on the other machine.
-		Cwd: "",
-	}
-	if _, err := r.Local.Pane(local); err != nil {
-		return "", fmt.Errorf("%s %q on %s, but attaching locally failed: %w", verb, name, resolved.Host, err)
+	if _, err := r.view(resolved, name); err != nil {
+		return "", err
 	}
 	return fmt.Sprintf("%s %q on %s and attached locally", verb, name, resolved.Host), nil
 }
@@ -70,15 +57,49 @@ func (r Remote) Attach(resolved action.Resolved) (string, error) {
 	if resolved.Session == "" {
 		return "", fmt.Errorf("nothing to attach to: %s has no session on %s", resolved.Name, resolved.Host)
 	}
+	return r.view(resolved, resolved.Session)
+}
+
+// view opens a local window showing an existing remote session.
+//
+// It attaches to a *grouped* session rather than the session itself. Two clients
+// of one session share its current window, so a second view would drag the first
+// one along — open an editor and then a shell on the same branch and both local
+// windows show the same remote window. A grouped session shares the windows with
+// an independent current-window, which is what tmux provides them for.
+func (r Remote) view(resolved action.Resolved, session string) (string, error) {
 	local := action.Resolved{
 		ID:   resolved.ID,
-		Name: resolved.Host + "/" + paneName(resolved),
-		Argv: r.attachArgv(resolved, resolved.Session),
+		Name: r.windowName(resolved),
+		Argv: r.attachArgv(resolved, session),
 	}
-	if _, err := r.Local.Pane(local); err != nil {
+	if _, err := r.Local.pane(local, map[string]string{
+		"@wd_host":      resolved.Host,
+		"@wd_session":   session,
+		"@wd_transport": r.transportName(resolved),
+	}); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("attached to session %q on %s", resolved.Session, resolved.Host), nil
+	return fmt.Sprintf("attached to session %q on %s over %s",
+		session, resolved.Host, r.transportName(resolved)), nil
+}
+
+// windowName says what the window is, not just where it points: which host, and
+// which transport carries it. Without the transport there is no way to tell a
+// mosh view from an ssh one by looking at your window list.
+func (r Remote) windowName(resolved action.Resolved) string {
+	return r.transportName(resolved) + "·" + resolved.Host + "/" + paneName(resolved)
+}
+
+func (r Remote) transportName(resolved action.Resolved) string {
+	transport := r.AttachArgv
+	if len(resolved.Attach) > 0 {
+		transport = resolved.Attach
+	}
+	if len(transport) == 0 {
+		return "ssh"
+	}
+	return transport[0]
 }
 
 // attachArgv builds the local command that reaches an existing remote session.
@@ -101,8 +122,11 @@ func (r Remote) attachArgv(resolved action.Resolved, session string) []string {
 	if len(resolved.Attach) > 0 {
 		transport = resolved.Attach
 	}
+	// new-session -t creates the grouped view AND attaches in one step, so nothing
+	// is left behind when the attach fails — a pre-created view session would
+	// linger, since destroy-unattached only fires when a client detaches.
 	return append(append(append([]string{}, transport...), r.Target),
-		"tmux", "attach", "-t"+exactTarget(session))
+		"tmux", "new-session", "-t"+exactTarget(session))
 }
 
 // Background is a local-desktop idea: the programs that need it are GUI apps on

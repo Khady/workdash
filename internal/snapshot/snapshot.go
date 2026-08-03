@@ -90,7 +90,7 @@ func Load(cfg wdconf.Config) (workspace.Snapshot, []string) {
 		return fetched, nil
 	})
 	if refreshWanted {
-		spawnBackgroundRefresh()
+		SpawnBackgroundRefresh()
 	}
 	wg.Wait()
 	snap, warnings := MergeHostResults(results)
@@ -128,9 +128,44 @@ func CacheFor(cfg wdconf.Config) collect.PRCache {
 	return collect.PRCache{Dir: collect.DefaultPRCacheDir(), TTL: cfg.PRCacheTTL, Now: time.Now}
 }
 
-// spawnBackgroundRefresh re-execs wd detached, because a goroutine would die with
-// this process the moment the list is printed.
-func spawnBackgroundRefresh() {
+// FetchPRs is the real fetch, one `gh` call for one account. It exists as a
+// named function so RefreshPRs can take the fetch as a parameter and still have
+// an obvious production value.
+func FetchPRs(account string) ([]workspace.PRRecord, error) {
+	return collect.PRs(collect.LocalRunner{}, account)
+}
+
+// RefreshPRs refetches every configured account with the caller waiting and
+// stores what it gets. It returns how many pull requests were stored and one
+// warning per account that failed.
+//
+// It lives here rather than in a frontend because every frontend needs it — the
+// CLI's `wd refresh`, the detached background refresh, and the browser popup's
+// refresh button — and three copies would eventually cache different things.
+// A failed account is a warning, never a stored empty result: caching "you have
+// no pull requests" because GitHub was briefly unauthorised would pin that
+// answer for the whole TTL.
+func RefreshPRs(cfg wdconf.Config, cache collect.PRCache, fetch func(string) ([]workspace.PRRecord, error)) (int, []string) {
+	stored := 0
+	warnings := []string{}
+	for _, account := range AccountsToFetch(cfg) {
+		records, err := fetch(account)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("%s: %v", AccountLabel(account), err))
+			continue
+		}
+		cache.Store(account, records)
+		stored += len(records)
+	}
+	return stored, warnings
+}
+
+// SpawnBackgroundRefresh re-execs this binary with `refresh` detached, because a
+// goroutine would die with this process the moment the list is printed. Every
+// frontend that serves a stale cache is expected to call it, so it is exported:
+// the browser host has the same "render now, catch up behind you" obligation the
+// CLI has, and it answers `refresh` for exactly this reason.
+func SpawnBackgroundRefresh() {
 	self, err := os.Executable()
 	if err != nil {
 		return

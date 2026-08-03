@@ -15,8 +15,11 @@ extension:
 	rm -f build/workdash-firefox.xpi
 	cd browser/firefox && zip -qr ../../build/workdash-firefox.xpi .
 
+# install-firefox installs the daemon-free host over the rewritten core. The old
+# scripts/install-firefox.sh, which also set up the daemon's socket units, is
+# left in place until the legacy tree is removed.
 install-firefox: extension
-	bash scripts/install-firefox.sh
+	bash scripts/install-firefox-host.sh
 
 uninstall-firefox:
 	bash scripts/uninstall-firefox.sh

@@ -12,6 +12,8 @@ package launch
 import (
 	"fmt"
 	"os/exec"
+	"sort"
+	"strings"
 	"syscall"
 
 	"github.com/Khady/workdash/internal/action"
@@ -72,6 +74,14 @@ func detachProcess(cwd string, argv []string) error {
 }
 
 func (t Tmux) Pane(resolved action.Resolved) (string, error) {
+	return t.pane(resolved, nil)
+}
+
+// pane creates the window and stamps tmux user options on it. The options record
+// what the window *is* — which host, session and transport it shows — so the fact
+// lives on the object rather than being encoded in a name for something to parse
+// later. A collector can then report "this window is a view of asia:gwt-x".
+func (t Tmux) pane(resolved action.Resolved, options map[string]string) (string, error) {
 	name := paneName(resolved)
 	argv := commandArgv(resolved)
 	if t.InsideTmux {
@@ -82,11 +92,14 @@ func (t Tmux) Pane(resolved action.Resolved) (string, error) {
 		if resolved.Session != "" {
 			target = []string{"-t" + exactTarget(resolved.Session) + ":"}
 		}
-		call := append(append([]string{"tmux", "new-window"}, target...), "-n", name, "-c", resolved.Cwd, "--")
+		call := append(append([]string{"tmux", "new-window"}, target...),
+			"-P", "-F", "#{window_id}", "-n", name, "-c", resolved.Cwd, "--")
 		call = append(call, argv...)
-		if _, err := t.Runner.Run("", call); err != nil {
+		id, err := t.Runner.Run("", call)
+		if err != nil {
 			return "", err
 		}
+		t.stamp(strings.TrimSpace(id), options)
 		return fmt.Sprintf("opened tmux window %q", name), nil
 	}
 	// A workspace may carry several sessions, so this is routinely the second
@@ -104,6 +117,26 @@ func (t Tmux) Pane(resolved action.Resolved) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("created detached session %q; attach with `tmux attach -t %s`", name, name), nil
+}
+
+// stamp records what a window is, best effort: failing to label a window is not
+// a reason to fail the action that created it.
+func (t Tmux) stamp(windowID string, options map[string]string) {
+	if windowID == "" || len(options) == 0 {
+		return
+	}
+	for _, key := range sortedKeys(options) {
+		_, _ = t.Runner.Run("", []string{"tmux", "set-option", "-w", "-t", windowID, key, options[key]})
+	}
+}
+
+func sortedKeys(values map[string]string) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func (t Tmux) Attach(resolved action.Resolved) (string, error) {

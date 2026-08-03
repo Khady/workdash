@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Khady/workdash/internal/collect"
 	"github.com/Khady/workdash/internal/wdconf"
 	"github.com/Khady/workdash/internal/workspace"
 )
@@ -137,5 +138,55 @@ func TestPRPolicyFetchesWhenThereIsNoCache(t *testing.T) {
 	decision := Policy(false, 0, wdconf.DefaultPRCacheTTL, wdconf.DefaultPRRefreshAfter)
 	if decision.UseCache || !decision.FetchNow {
 		t.Fatalf("decision = %+v, want a blocking fetch on a cold cache", decision)
+	}
+}
+
+// RefreshPRs is what `wd refresh` and the browser host's refresh button both do.
+// It is here rather than in either frontend so the two cannot drift into caching
+// different things.
+func TestRefreshPRsStoresEveryAccountAndWarnsPerFailure(t *testing.T) {
+	cfg := wdconf.Config{
+		Repos: []wdconf.Repo{{Root: "/a", Label: "a", GHAccount: "work"}},
+		Hosts: []wdconf.Host{{Label: "asia", Repos: []wdconf.Repo{{Root: "/b", Label: "b", GHAccount: "personal"}}}},
+	}
+	cache := collect.PRCache{Dir: t.TempDir(), TTL: time.Hour, Now: time.Now}
+	fetched, warnings := RefreshPRs(cfg, cache, func(account string) ([]workspace.PRRecord, error) {
+		if account == "personal" {
+			return nil, errors.New("gh: HTTP 401")
+		}
+		return []workspace.PRRecord{
+			{FullName: "o/r", Branch: "topic", PR: workspace.PR{Number: 1}},
+			{FullName: "o/r", Branch: "other", PR: workspace.PR{Number: 2}},
+		}, nil
+	})
+	if fetched != 2 {
+		t.Fatalf("fetched = %d, want the two pull requests the working account returned", fetched)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "personal") {
+		t.Fatalf("warnings = %v, want one naming the failing account", warnings)
+	}
+	records, _, ok := cache.Load("work")
+	if !ok || len(records) != 2 {
+		t.Fatalf("cache for work = %+v (ok=%v), want the fetched records stored", records, ok)
+	}
+	if _, _, ok := cache.Load("personal"); ok {
+		t.Fatal("a failed fetch must not be cached")
+	}
+}
+
+// With no gh_account configured there is still one fetch, under gh's own active
+// login — the single-account case, which is most people.
+func TestRefreshPRsWithNoAccountsStillFetchesOnce(t *testing.T) {
+	calls := []string{}
+	cache := collect.PRCache{Dir: t.TempDir(), TTL: time.Hour, Now: time.Now}
+	fetched, warnings := RefreshPRs(wdconf.Config{}, cache, func(account string) ([]workspace.PRRecord, error) {
+		calls = append(calls, account)
+		return []workspace.PRRecord{{FullName: "o/r", Branch: "topic"}}, nil
+	})
+	if len(calls) != 1 || calls[0] != "" {
+		t.Fatalf("calls = %q, want one fetch under the ambient account", calls)
+	}
+	if fetched != 1 || len(warnings) != 0 {
+		t.Fatalf("fetched = %d, warnings = %v", fetched, warnings)
 	}
 }

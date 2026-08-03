@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/Khady/workdash/internal/action"
-	"github.com/Khady/workdash/internal/collect"
 	"github.com/Khady/workdash/internal/dispatch"
 	"github.com/Khady/workdash/internal/snapshot"
 	"github.com/Khady/workdash/internal/wdconf"
@@ -119,16 +118,12 @@ func run(argv []string) error {
 
 	case "refresh":
 		// Refetch every account with the caller waiting. Run by hand when you have
-		// just opened a pull request, and by the detached background refresh.
-		fetched := 0
-		for _, account := range snapshot.AccountsToFetch(cfg) {
-			records, err := collect.PRs(collect.LocalRunner{}, account)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "wd: %s: %v\n", snapshot.AccountLabel(account), err)
-				continue
-			}
-			snapshot.CacheFor(cfg).Store(account, records)
-			fetched += len(records)
+		// just opened a pull request, and by the detached background refresh. The
+		// body lives in the core because the browser host's refresh button does
+		// exactly this, and two copies would eventually cache different things.
+		fetched, refreshWarnings := snapshot.RefreshPRs(cfg, snapshot.CacheFor(cfg), snapshot.FetchPRs)
+		for _, warning := range refreshWarnings {
+			fmt.Fprintln(os.Stderr, "wd: "+warning)
 		}
 		fmt.Printf("refreshed %d pull requests\n", fetched)
 		return nil
