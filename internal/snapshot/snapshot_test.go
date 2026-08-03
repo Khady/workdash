@@ -3,6 +3,7 @@ package snapshot
 import (
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -66,9 +67,15 @@ func TestMergeHostResultsIndexesEveryHostTogether(t *testing.T) {
 }
 
 func TestCollectPRsQueriesEachAccountOnceAndMergesThem(t *testing.T) {
+	// The accounts are fetched concurrently — that is the point, since each one is a
+	// network round trip — so the fake needs a lock. Without it the test raced with
+	// itself and lost one of the two appends.
+	var mu sync.Mutex
 	asked := []string{}
 	records, warnings := CollectPRs([]string{"acct-a", "acct-b"}, func(account string) ([]workspace.PRRecord, error) {
+		mu.Lock()
 		asked = append(asked, account)
+		mu.Unlock()
 		return []workspace.PRRecord{{FullName: "o/" + account, Branch: "main", PR: workspace.PR{Number: 1}}}, nil
 	})
 	if len(asked) != 2 {
