@@ -1,23 +1,21 @@
-BINARY := workdash
-NATIVE_HOST := workdash-native-host
-CMD := ./cmd/workdash
+# The three frontends over one core: the CLI, the TUI, and the Firefox host.
+CMDS := ./cmd/wd ./cmd/wdt ./cmd/wd-host
 
 .PHONY: all build extension install-firefox uninstall-firefox install-core test vet fmt check run clean
 
 all: build
 
 build:
-	go build -o $(BINARY) $(CMD)
-	go build -o $(NATIVE_HOST) ./cmd/workdash-native-host
+	go build $(CMDS)
 
 extension:
 	mkdir -p build
 	rm -f build/workdash-firefox.xpi
 	cd browser/firefox && zip -qr ../../build/workdash-firefox.xpi .
 
-# install-firefox installs the daemon-free host over the rewritten core. The old
-# scripts/install-firefox.sh, which also set up the daemon's socket units, is
-# left in place until the legacy tree is removed.
+# install-firefox installs the daemon-free host. There is no socket and no systemd
+# unit: Firefox spawns wd-host per message and it rebuilds the snapshot the way wd
+# does.
 install-firefox: extension
 	bash scripts/install-firefox-host.sh
 
@@ -43,7 +41,7 @@ fmt:
 check: fmt test vet build
 
 run:
-	go run $(CMD)
+	go run ./cmd/wdt
 
 clean:
-	rm -f $(BINARY) $(NATIVE_HOST) build/workdash-firefox.xpi
+	rm -f wd wdt wd-host build/workdash-firefox.xpi
