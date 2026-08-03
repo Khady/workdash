@@ -197,3 +197,50 @@ func TestRefreshPRsWithNoAccountsStillFetchesOnce(t *testing.T) {
 		t.Fatalf("fetched = %d, warnings = %v", fetched, warnings)
 	}
 }
+
+// Accounts must be fetched concurrently, as the load path already does. Each one is
+// now four GitHub requests rather than one — three paginated pages for the open set
+// plus the history window — so doing them in series made the popup's refresh button
+// wait for the sum: measured at 11.8s across two accounts.
+//
+// The barrier is the assertion: every fetch has to be in flight before any is
+// allowed to finish, which a sequential implementation can never satisfy.
+func TestRefreshPRsFetchesAccountsConcurrently(t *testing.T) {
+	cfg := wdconf.Config{
+		Repos: []wdconf.Repo{{Root: "/a", GHAccount: "work"}},
+		Hosts: []wdconf.Host{{Label: "asia", Repos: []wdconf.Repo{{Root: "/b", GHAccount: "personal"}}}},
+	}
+	cache := collect.PRCache{Dir: t.TempDir(), TTL: time.Hour, Now: time.Now}
+	arrived := make(chan string, 2)
+	release := make(chan struct{})
+	type outcome struct {
+		stored   int
+		warnings []string
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		stored, warnings := RefreshPRs(cfg, cache, func(account string) ([]workspace.PRRecord, error) {
+			arrived <- account
+			<-release
+			return []workspace.PRRecord{{FullName: "o/r", Branch: account, PR: workspace.PR{Number: 1}}}, nil
+		})
+		done <- outcome{stored, warnings}
+	}()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-arrived:
+		case <-time.After(5 * time.Second):
+			t.Fatal("only one account was in flight: the fetches are sequential")
+		}
+	}
+	close(release)
+	got := <-done
+	if got.stored != 2 || len(got.warnings) != 0 {
+		t.Fatalf("stored = %d, warnings = %v, want both accounts stored", got.stored, got.warnings)
+	}
+	for _, account := range []string{"work", "personal"} {
+		if records, _, ok := cache.Load(account); !ok || len(records) != 1 {
+			t.Fatalf("cache for %s = %+v (ok=%v), want its records stored", account, records, ok)
+		}
+	}
+}

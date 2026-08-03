@@ -145,17 +145,39 @@ func FetchPRs(account string) ([]workspace.PRRecord, error) {
 // A failed account is a warning, never a stored empty result: caching "you have
 // no pull requests" because GitHub was briefly unauthorised would pin that
 // answer for the whole TTL.
+// Accounts go concurrently, as the load path's CollectPRs already does. Each one
+// is four GitHub requests now rather than one — the open set is paginated, and the
+// history window is its own call — so in series two accounts took 11.8s with the
+// popup's refresh button waiting on the sum. The cache is one file per account, so
+// the stores do not contend.
 func RefreshPRs(cfg wdconf.Config, cache collect.PRCache, fetch func(string) ([]workspace.PRRecord, error)) (int, []string) {
+	accounts := AccountsToFetch(cfg)
+	type result struct {
+		records []workspace.PRRecord
+		err     error
+	}
+	results := make([]result, len(accounts))
+	var wg sync.WaitGroup
+	for i, account := range accounts {
+		wg.Add(1)
+		go func(i int, account string) {
+			defer wg.Done()
+			records, err := fetch(account)
+			results[i] = result{records: records, err: err}
+		}(i, account)
+	}
+	wg.Wait()
+	// Storing and reporting happen here, in account order, so the warnings a caller
+	// prints do not depend on which fetch finished first.
 	stored := 0
 	warnings := []string{}
-	for _, account := range AccountsToFetch(cfg) {
-		records, err := fetch(account)
-		if err != nil {
-			warnings = append(warnings, fmt.Sprintf("%s: %v", AccountLabel(account), err))
+	for i, account := range accounts {
+		if results[i].err != nil {
+			warnings = append(warnings, fmt.Sprintf("%s: %v", AccountLabel(account), results[i].err))
 			continue
 		}
-		cache.Store(account, records)
-		stored += len(records)
+		cache.Store(account, results[i].records)
+		stored += len(results[i].records)
 	}
 	return stored, warnings
 }
