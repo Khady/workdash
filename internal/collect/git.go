@@ -101,18 +101,18 @@ func parseBranches(out, host string, repo Repo) []workspace.GitRecord {
 			record.Upstream = strings.TrimSpace(fields[2])
 		}
 		if len(fields) > 3 {
-			record.Ahead = parseAhead(fields[3])
+			record.Ahead = parseTrack(fields[3], aheadPattern)
+			record.Behind = parseTrack(fields[3], behindPattern)
 		}
 		records = append(records, record)
 	}
 	return records
 }
 
-// parseAhead reads the ahead count out of git's track field, which looks like
-// "[ahead 3]" or "[ahead 2, behind 5]". Only ahead matters here: behind is work
-// you have not pulled, not work you could lose.
-func parseAhead(track string) int {
-	match := aheadPattern.FindStringSubmatch(track)
+// parseTrack reads a count out of git's track field, which looks like "[ahead 3]",
+// "[behind 5]" or "[ahead 2, behind 5]".
+func parseTrack(track string, pattern *regexp.Regexp) int {
+	match := pattern.FindStringSubmatch(track)
 	if match == nil {
 		return 0
 	}
@@ -123,7 +123,10 @@ func parseAhead(track string) int {
 	return count
 }
 
-var aheadPattern = regexp.MustCompile(`ahead (\d+)`)
+var (
+	aheadPattern  = regexp.MustCompile(`ahead (\d+)`)
+	behindPattern = regexp.MustCompile(`behind (\d+)`)
+)
 
 // parseUnixTime tolerates an absent or unparseable date: a branch with no
 // timestamp is still a branch, it just sorts after the dated ones.

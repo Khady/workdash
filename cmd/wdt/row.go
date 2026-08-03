@@ -30,7 +30,7 @@ type row struct {
 	Facets   []badge
 	PR       badge
 	Session  string
-	Unpushed string
+	Tracking []badge
 	PRTitle  string
 	Age      string
 	// Unlinked marks a tmux session that matches no worktree workdash knows
@@ -139,8 +139,8 @@ func buildRows(now time.Time, snap workspace.Snapshot) []row {
 			Sessions: []workspace.Session{orphan.Session},
 		}
 		r := rowFor(now, ws, "(unlinked)", true)
-		// An unlinked session is not a branch, so it has no upstream to be ahead of.
-		r.Unpushed = ""
+		// An unlinked session is not a branch, so it has no upstream to stand against.
+		r.Tracking = nil
 		rows = append(rows, r)
 	}
 	return rows
@@ -156,12 +156,23 @@ func rowFor(now time.Time, ws workspace.Workspace, repo string, unlinked bool) r
 		Facets:   facetBadges(ws),
 		PR:       prBadge(ws),
 		Session:  session,
-		Unpushed: unpushed(ws),
+		Tracking: trackingBadges(ws),
 		PRTitle:  prTitle(ws),
 		Age:      formatAge(now, ws.CommittedAt),
 		Unlinked: unlinked,
-		haystack: strings.ToLower(strings.Join([]string{ws.ID.Host, repo, ws.ID.Branch, sessionNames(ws)}, " ")),
+		haystack: strings.ToLower(strings.Join([]string{ws.ID.Host, repo, ws.ID.Branch,
+			sessionNames(ws), prSearchText(ws)}, " ")),
 	}
+}
+
+// prSearchText puts the pull request in the haystack. The number is included both
+// bare and with the "#" people actually type, and the title because "the one about
+// variant strings" is how you remember a PR.
+func prSearchText(ws workspace.Workspace) string {
+	if ws.PR == nil {
+		return ""
+	}
+	return fmt.Sprintf("%d #%d %s", ws.PR.Number, ws.PR.Number, ws.PR.Title)
 }
 
 func prTitle(ws workspace.Workspace) string {
@@ -196,7 +207,7 @@ var columns = []column{
 	{Title: "REPO"},
 	{Title: "BRANCH"},
 	{Title: "W S"},
-	{Title: "↑", RightAligned: true},
+	{Title: "↑↓", RightAligned: true},
 	{Title: "PR", RightAligned: true},
 	{Title: "SESSION"},
 	{Title: "AGE", RightAligned: true},
@@ -234,18 +245,26 @@ func matchesView(r row, v view) bool {
 	return workspace.Matches(r.WS, v.Needs)
 }
 
-// unpushed reports commits that exist only here. "+3" means three commits are on
-// this branch and nowhere else; "∅" means the branch has no upstream at all, so
-// none of it is pushed anywhere. Both are things to know before deleting a
-// worktree, which is what the old dashboard used the count for.
-func unpushed(ws workspace.Workspace) string {
+// trackingBadges reports how this branch stands against its upstream. "+3" is
+// three commits only here — what you would lose by deleting the worktree. "-757"
+// is how far behind it has fallen, which changes the meaning of the first number
+// entirely: +11 alone reads like "nearly current". "∅" means no upstream at all,
+// so none of it is pushed anywhere.
+//
+// The two directions get different colours because they call for different things:
+// ahead is yours to push, behind is theirs to pull.
+func trackingBadges(ws workspace.Workspace) []badge {
 	if ws.Upstream == "" {
-		return "∅"
+		return []badge{{Text: "∅", Color: colorPRClosed}}
 	}
-	if ws.Ahead == 0 {
-		return ""
+	badges := []badge{}
+	if ws.Ahead > 0 {
+		badges = append(badges, badge{Text: fmt.Sprintf("+%d", ws.Ahead), Color: colorPRDraft})
 	}
-	return fmt.Sprintf("+%d", ws.Ahead)
+	if ws.Behind > 0 {
+		badges = append(badges, badge{Text: fmt.Sprintf("-%d", ws.Behind), Color: colorMuted})
+	}
+	return badges
 }
 
 func matchesFilter(r row, query string) bool {

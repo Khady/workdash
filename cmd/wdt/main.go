@@ -291,7 +291,7 @@ func (a *app) setRow(index int, r row) {
 	a.table.SetCell(index, 3, tagged(renderBadges(r.Facets)))
 	// Unpushed commits sit beside the facet grid: it is state, like the facets, and
 	// it is what tells you a worktree is not safe to delete.
-	a.table.SetCell(index, 4, aligned(styled(r.Unpushed, colorPRDraft, true), 4).SetMaxWidth(3))
+	a.table.SetCell(index, 4, aligned(tagged(renderBadges(r.Tracking)), 4).SetMaxWidth(9))
 	pr := aligned(tagged(renderBadges([]badge{r.PR})), 5).SetMaxWidth(7)
 	if r.PR.URL != "" {
 		// tcell emits OSC 8 from the style, so the number is clickable in a

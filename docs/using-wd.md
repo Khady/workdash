@@ -29,6 +29,9 @@ make install-core
 **`prefix + w`** opens the TUI in a tmux popup: type to filter, `Enter` for the
 action menu, `Ctrl+R` to reload, `?` for help, `q` to quit.
 
+Typing filters on host, repo, branch, session name, **PR number** (with or without
+the `#`) and PR title.
+
 **`Tab`** / **`Shift+Tab`** cycle the view, as the old dashboard did: **All →
 Tmux → Worktrees → PRs → Branches**. Those are facet filters — "Branches" means
 the ones checked out nowhere — and the active view is shown top-left next to the
@@ -63,9 +66,11 @@ asia   (unlinked) claude rc monorepo     session
 ```
 
 The columns are host, repo, branch, the `W S` facet grid, PR number, session
-the `↑` unpushed count, PR number, session detail and age. `↑` shows `+3` when
-three commits exist only on this branch, and `∅` when the branch has no upstream
-at all — both are what you want to know before deleting a worktree. The PR number
+the `↑↓` tracking column, PR number, session detail and age. `↑↓` shows `+11` for
+commits only on this branch — what deleting the worktree would lose — and `-757`
+for how far behind upstream it has fallen, which changes what the first number
+means: `+11` alone reads like "nearly current". `∅` means no upstream at all, so
+none of it is pushed anywhere. The PR number
 is a terminal hyperlink — clickable where your
 terminal supports OSC 8, plain text where it does not. There is no `P` slot in the
 grid: the PR column already shows the

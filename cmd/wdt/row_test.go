@@ -2,6 +2,7 @@ package main
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -369,36 +370,6 @@ func TestPRBadgeCarriesTheURL(t *testing.T) {
 	}
 }
 
-// "+1 unpushed" is the thing you want to see before deleting a worktree, which is
-// exactly what the old dashboard used it for.
-func TestUnpushedSummarisesAheadCount(t *testing.T) {
-	if got := unpushed(workspace.Workspace{Upstream: "origin/topic", Ahead: 3}); got != "+3" {
-		t.Fatalf("unpushed = %q, want +3", got)
-	}
-	if got := unpushed(workspace.Workspace{Upstream: "origin/topic"}); got != "" {
-		t.Fatalf("unpushed = %q, want empty when nothing is ahead", got)
-	}
-	// No upstream at all is worth flagging too: nothing is pushed anywhere.
-	if got := unpushed(workspace.Workspace{}); got != "∅" {
-		t.Fatalf("unpushed = %q, want the no-upstream marker", got)
-	}
-}
-
-func TestBuildRowsCarriesUnpushedAndPRTitle(t *testing.T) {
-	snap := workspace.Snapshot{Workspaces: []workspace.Workspace{{
-		ID: workspace.ID{Host: "asia", Repo: "/r", Branch: "louis/x"}, RepoLabel: "monorepo",
-		Upstream: "origin/louis/x", Ahead: 1,
-		PR: &workspace.PR{Number: 7, State: "OPEN", Title: "make it faster"},
-	}}}
-	rows := buildRows(time.Now(), snap)
-	if rows[0].Unpushed != "+1" {
-		t.Fatalf("row unpushed = %q, want +1", rows[0].Unpushed)
-	}
-	if rows[0].PRTitle != "make it faster" {
-		t.Fatalf("row pr title = %q, want the title", rows[0].PRTitle)
-	}
-}
-
 // A header has to sit over its own values. The unpushed, PR and age columns hold
 // short right-aligned values, so their titles are right-aligned too — otherwise
 // "↑" floats to the left of the "+11" it labels.
@@ -407,7 +378,7 @@ func TestColumnsAlignHeadersWithTheirValues(t *testing.T) {
 	for _, c := range columns {
 		titles = append(titles, c.Title)
 	}
-	want := []string{"HOST", "REPO", "BRANCH", "W S", "↑", "PR", "SESSION", "AGE"}
+	want := []string{"HOST", "REPO", "BRANCH", "W S", "↑↓", "PR", "SESSION", "AGE"}
 	if len(titles) != len(want) {
 		t.Fatalf("columns = %v, want %v", titles, want)
 	}
@@ -416,7 +387,7 @@ func TestColumnsAlignHeadersWithTheirValues(t *testing.T) {
 			t.Fatalf("columns = %v, want %v", titles, want)
 		}
 	}
-	for _, title := range []string{"↑", "PR", "AGE"} {
+	for _, title := range []string{"↑↓", "PR", "AGE"} {
 		if !columnByTitle(title).RightAligned {
 			t.Fatalf("column %q holds short values on the right; its title must follow", title)
 		}
@@ -435,4 +406,75 @@ func columnByTitle(title string) column {
 		}
 	}
 	return column{}
+}
+
+// Both directions, distinctly coloured: ahead is work only you have, behind is how
+// stale the branch is. Showing only ahead made a branch 757 commits behind look
+// nearly current.
+func TestTrackingShowsAheadAndBehind(t *testing.T) {
+	render := func(ws workspace.Workspace) string {
+		texts := []string{}
+		for _, b := range trackingBadges(ws) {
+			texts = append(texts, b.Text)
+		}
+		return strings.Join(texts, " ")
+	}
+	if got := render(workspace.Workspace{Upstream: "origin/x", Ahead: 11, Behind: 757}); got != "+11 -757" {
+		t.Fatalf("both = %q, want +11 -757", got)
+	}
+	if got := render(workspace.Workspace{Upstream: "origin/x", Ahead: 3}); got != "+3" {
+		t.Fatalf("ahead only = %q, want +3", got)
+	}
+	if got := render(workspace.Workspace{Upstream: "origin/x", Behind: 5}); got != "-5" {
+		t.Fatalf("behind only = %q, want -5", got)
+	}
+	if got := render(workspace.Workspace{Upstream: "origin/x"}); got != "" {
+		t.Fatalf("level = %q, want nothing", got)
+	}
+	if got := render(workspace.Workspace{}); got != "∅" {
+		t.Fatalf("no upstream = %q, want the empty-set marker", got)
+	}
+}
+
+func TestTrackingColoursTheTwoDirectionsDifferently(t *testing.T) {
+	badges := trackingBadges(workspace.Workspace{Upstream: "origin/x", Ahead: 1, Behind: 2})
+	if len(badges) != 2 {
+		t.Fatalf("badges = %+v, want one per direction", badges)
+	}
+	if badges[0].Color == badges[1].Color {
+		t.Fatalf("badges = %+v, want ahead and behind told apart by colour", badges)
+	}
+}
+
+// A PR number is one of the most natural things to search for, and it was not in
+// the haystack at all.
+func TestFilterMatchesThePRNumberAndTitle(t *testing.T) {
+	rows := buildRows(time.Now(), workspace.Snapshot{Workspaces: []workspace.Workspace{{
+		ID: workspace.ID{Host: "asia", Repo: "/r", Branch: "louis/x"}, RepoLabel: "monorepo",
+		PR: &workspace.PR{Number: 36236, URL: "u", State: "OPEN", Title: "drop VariantAsString"},
+	}}})
+	for _, query := range []string{"36236", "#36236", "variantasstring", "drop Variant"} {
+		if got := filterRows(rows, query, 0); len(got) != 1 {
+			t.Fatalf("filter %q matched %d rows, want 1", query, len(got))
+		}
+	}
+	if got := filterRows(rows, "99999", 0); len(got) != 0 {
+		t.Fatalf("filter for another number matched %d rows", len(got))
+	}
+}
+
+// The row carries the PR title so a frontend can show it, and both tracking
+// directions.
+func TestBuildRowsCarriesTrackingAndPRTitle(t *testing.T) {
+	rows := buildRows(time.Now(), workspace.Snapshot{Workspaces: []workspace.Workspace{{
+		ID: workspace.ID{Host: "asia", Repo: "/r", Branch: "louis/x"}, RepoLabel: "monorepo",
+		Upstream: "origin/louis/x", Ahead: 1, Behind: 2,
+		PR: &workspace.PR{Number: 7, State: "OPEN", Title: "make it faster"},
+	}}})
+	if len(rows[0].Tracking) != 2 {
+		t.Fatalf("tracking = %+v, want both directions", rows[0].Tracking)
+	}
+	if rows[0].PRTitle != "make it faster" {
+		t.Fatalf("pr title = %q", rows[0].PRTitle)
+	}
 }

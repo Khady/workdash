@@ -72,11 +72,13 @@ type Workspace struct {
 	// is what makes a long list navigable, so it is collected even though nothing
 	// else needs it.
 	CommittedAt *time.Time `json:"committed_at,omitempty"`
-	// Upstream is the tracking branch, empty when there is none. Ahead is how many
-	// commits are unpushed — worth seeing before deleting a worktree, which is why
-	// the old dashboard showed "+1 unpushed".
+	// Upstream is the tracking branch, empty when there is none. Ahead counts
+	// commits only here — worth seeing before deleting a worktree — and Behind
+	// counts commits only upstream. Both matter: "+11" on a branch that is also 757
+	// commits behind reads like "nearly current", which is the opposite of true.
 	Upstream string    `json:"upstream,omitempty"`
 	Ahead    int       `json:"ahead,omitempty"`
+	Behind   int       `json:"behind,omitempty"`
 	Sessions []Session `json:"sessions,omitempty"`
 	PR       *PR       `json:"pr,omitempty"`
 }

@@ -15,6 +15,7 @@ type GitRecord struct {
 	SSHTarget    string
 	Upstream     string
 	Ahead        int
+	Behind       int
 	CommittedAt  *time.Time
 	Worktree     *Worktree
 }
@@ -58,7 +59,7 @@ func Index(git []GitRecord, sessions []SessionRecord) Snapshot {
 		if !ok {
 			byID[record.ID] = &Workspace{ID: record.ID, RepoLabel: record.RepoLabel,
 				RepoFullName: record.RepoFullName, SSHTarget: record.SSHTarget,
-				Upstream: record.Upstream, Ahead: record.Ahead,
+				Upstream: record.Upstream, Ahead: record.Ahead, Behind: record.Behind,
 				CommittedAt: record.CommittedAt,
 				Worktree:    copyWorktree(record.Worktree)}
 			order = append(order, record.ID)
@@ -79,6 +80,7 @@ func Index(git []GitRecord, sessions []SessionRecord) Snapshot {
 		if existing.Upstream == "" {
 			existing.Upstream = record.Upstream
 			existing.Ahead = record.Ahead
+			existing.Behind = record.Behind
 		}
 		if record.CommittedAt != nil && (existing.CommittedAt == nil || record.CommittedAt.After(*existing.CommittedAt)) {
 			existing.CommittedAt = record.CommittedAt

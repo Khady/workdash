@@ -249,3 +249,28 @@ func TestBranchArgvAsksForUpstreamAndTrack(t *testing.T) {
 		}
 	}
 }
+
+// Behind matters as much as ahead: "+11" on a branch that is also 757 commits
+// behind reads like "nearly current", which is the opposite of the truth.
+func TestParseBranchesReadsBehindAsWellAsAhead(t *testing.T) {
+	out := "mixed\t1700000000\torigin/mixed\t[ahead 11, behind 757]\n" +
+		"stale\t1700000001\torigin/stale\t[behind 1272]\n" +
+		"ahead-only\t1700000002\torigin/a\t[ahead 3]\n" +
+		"level\t1700000003\torigin/l\t\n"
+	byBranch := map[string]workspace.GitRecord{}
+	for _, r := range parseBranches(out, "local", Repo{Root: "/repo", Label: "repo"}) {
+		byBranch[r.ID.Branch] = r
+	}
+	if got := byBranch["mixed"]; got.Ahead != 11 || got.Behind != 757 {
+		t.Fatalf("mixed = ahead %d behind %d, want 11 and 757", got.Ahead, got.Behind)
+	}
+	if got := byBranch["stale"]; got.Ahead != 0 || got.Behind != 1272 {
+		t.Fatalf("stale = ahead %d behind %d, want 0 and 1272", got.Ahead, got.Behind)
+	}
+	if got := byBranch["ahead-only"]; got.Ahead != 3 || got.Behind != 0 {
+		t.Fatalf("ahead-only = ahead %d behind %d, want 3 and 0", got.Ahead, got.Behind)
+	}
+	if got := byBranch["level"]; got.Ahead != 0 || got.Behind != 0 {
+		t.Fatalf("level = ahead %d behind %d, want zeroes", got.Ahead, got.Behind)
+	}
+}
