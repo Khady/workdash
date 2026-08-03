@@ -766,3 +766,71 @@ func TestLoadAcceptsPRRefreshAfterEqualToTTL(t *testing.T) {
 		t.Fatalf("ttl = %v, refresh after = %v, want both %v", cfg.PRCacheTTL, cfg.PRRefreshAfter, 30*time.Minute)
 	}
 }
+
+// A misspelled or misplaced key silently did nothing, which is how `terminal`
+// landed inside a [[repos]] table and was ignored: in TOML a bare key after a
+// table header belongs to that table.
+func TestLoadRejectsAnUnknownKey(t *testing.T) {
+	path := writeConfig(t, "termnial = [\"kitty\"]\n")
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load() error = nil, want a rejection naming the unknown key")
+	}
+	if !strings.Contains(err.Error(), "termnial") {
+		t.Fatalf("error = %q, want it to name the key", err)
+	}
+}
+
+func TestLoadRejectsATopLevelKeyPlacedInsideATable(t *testing.T) {
+	path := writeConfig(t, `
+[[repos]]
+root = "/x/repo"
+terminal = ["kitty", "-e"]
+`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load() error = nil, want a rejection: terminal is not a repo key")
+	}
+	if !strings.Contains(err.Error(), "terminal") {
+		t.Fatalf("error = %q, want it to name the key", err)
+	}
+}
+
+func TestLoadStillAcceptsEveryDocumentedKey(t *testing.T) {
+	path := writeConfig(t, `
+terminal = ["kitty", "--single-instance", "-e"]
+pr_cache_ttl = "24h"
+pr_refresh_after = "15m"
+
+[[repos]]
+root = "/x/repo"
+label = "repo"
+gh_account = "someone"
+
+[[hosts]]
+label = "asia"
+ssh_target = "me@asia"
+tmux = true
+attach_argv = ["ssh", "-A", "-t"]
+
+[[hosts.repos]]
+root = "/srv/repo"
+gh_account = "someone"
+
+[[actions]]
+id = "shell"
+label = "open shell"
+needs = ["worktree"]
+scope = "remote"
+hosts = ["asia"]
+run_on = "local"
+where = "pane"
+argv = ["bash"]
+cwd = "{path}"
+shell = true
+attach_argv = ["mosh", "--"]
+`)
+	if _, err := Load(path); err != nil {
+		t.Fatalf("Load() error = %v, want every documented key accepted", err)
+	}
+}

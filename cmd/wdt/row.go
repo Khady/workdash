@@ -183,6 +183,25 @@ func sessionNames(ws workspace.Workspace) string {
 // case-insensitive substring of host, repo, branch and session names. Terms
 // rather than one string because the useful query is two coordinates at once —
 // "asia dune" — and the fields they match are in no fixed order on the line.
+// column describes a table column. Alignment lives here so a header and its values
+// cannot disagree: the short right-aligned columns need right-aligned titles, or
+// "↑" floats to the left of the "+11" it labels.
+type column struct {
+	Title        string
+	RightAligned bool
+}
+
+var columns = []column{
+	{Title: "HOST"},
+	{Title: "REPO"},
+	{Title: "BRANCH"},
+	{Title: "W S"},
+	{Title: "↑", RightAligned: true},
+	{Title: "PR", RightAligned: true},
+	{Title: "SESSION"},
+	{Title: "AGE", RightAligned: true},
+}
+
 // view is one of the old dashboard's Tab-cycled modes, expressed as facet
 // requirements: those modes were always "show me the things that have X".
 type view struct {

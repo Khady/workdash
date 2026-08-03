@@ -1,6 +1,8 @@
 package wdconf
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -140,6 +142,13 @@ func (c Config) GHAccounts() []string {
 // configured host cannot claim it and shadow the local workspaces.
 const LocalHost = "local"
 
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
 func DefaultPath() string {
 	if path := os.Getenv("WD_CONFIG"); path != "" {
 		return path
@@ -157,7 +166,23 @@ func Load(path string) (Config, error) {
 		return Config{}, err
 	}
 	var cfg Config
-	if err := toml.Unmarshal(data, &cfg); err != nil {
+	// Strict: an unknown key is an error, not a no-op. A misspelling used to do
+	// nothing at all, and so did a top-level key written after a [[table]] header —
+	// TOML makes it a key *of that table*, which is how `terminal` ended up inside
+	// [[repos]] and was silently ignored.
+	decoder := toml.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&cfg); err != nil {
+		var strict *toml.StrictMissingError
+		if errors.As(err, &strict) {
+			keys := []string{}
+			for _, decodeErr := range strict.Errors {
+				keys = append(keys, strings.Join(decodeErr.Key(), "."))
+			}
+			return Config{}, fmt.Errorf("unknown %s: %s\n%s\n"+
+				"a top-level key written after a [[table]] header belongs to that table",
+				plural(len(keys), "key", "keys"), strings.Join(keys, ", "), strict.String())
+		}
 		return Config{}, err
 	}
 	if err := resolvePRCache(&cfg); err != nil {

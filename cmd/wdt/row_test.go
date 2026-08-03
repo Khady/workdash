@@ -398,3 +398,41 @@ func TestBuildRowsCarriesUnpushedAndPRTitle(t *testing.T) {
 		t.Fatalf("row pr title = %q, want the title", rows[0].PRTitle)
 	}
 }
+
+// A header has to sit over its own values. The unpushed, PR and age columns hold
+// short right-aligned values, so their titles are right-aligned too — otherwise
+// "↑" floats to the left of the "+11" it labels.
+func TestColumnsAlignHeadersWithTheirValues(t *testing.T) {
+	titles := []string{}
+	for _, c := range columns {
+		titles = append(titles, c.Title)
+	}
+	want := []string{"HOST", "REPO", "BRANCH", "W S", "↑", "PR", "SESSION", "AGE"}
+	if len(titles) != len(want) {
+		t.Fatalf("columns = %v, want %v", titles, want)
+	}
+	for i := range want {
+		if titles[i] != want[i] {
+			t.Fatalf("columns = %v, want %v", titles, want)
+		}
+	}
+	for _, title := range []string{"↑", "PR", "AGE"} {
+		if !columnByTitle(title).RightAligned {
+			t.Fatalf("column %q holds short values on the right; its title must follow", title)
+		}
+	}
+	for _, title := range []string{"HOST", "REPO", "BRANCH", "SESSION"} {
+		if columnByTitle(title).RightAligned {
+			t.Fatalf("column %q is text; it should stay left-aligned", title)
+		}
+	}
+}
+
+func columnByTitle(title string) column {
+	for _, c := range columns {
+		if c.Title == title {
+			return c
+		}
+	}
+	return column{}
+}

@@ -241,10 +241,14 @@ func (a *app) populate(preserve bool) {
 	}
 	a.shown = filterRows(a.rows, a.query, a.view)
 	a.table.Clear()
-	for column, title := range []string{"HOST", "REPO", "BRANCH", "W S", "↑", "PR", "SESSION", "AGE"} {
-		a.table.SetCell(0, column, tview.NewTableCell(title).
+	for index, col := range columns {
+		cell := tview.NewTableCell(col.Title).
 			SetTextColor(tcell.GetColor(colorMuted)).
-			SetSelectable(false))
+			SetSelectable(false)
+		if col.RightAligned {
+			cell.SetAlign(tview.AlignRight)
+		}
+		a.table.SetCell(0, index, cell)
 	}
 	selected := 1
 	for index, r := range a.shown {
@@ -264,6 +268,15 @@ func (a *app) populate(preserve bool) {
 
 // setRow writes one workspace. Colour carries meaning per column: the hue is the
 // host, brightness is the branch, and everything else is muted context.
+// aligned applies a column's alignment to a cell, so the header loop and the row
+// renderer read it from the same place.
+func aligned(cell *tview.TableCell, index int) *tview.TableCell {
+	if index < len(columns) && columns[index].RightAligned {
+		cell.SetAlign(tview.AlignRight)
+	}
+	return cell
+}
+
 func (a *app) setRow(index int, r row) {
 	branchColor := colorText
 	if r.Unlinked {
@@ -278,8 +291,8 @@ func (a *app) setRow(index int, r row) {
 	a.table.SetCell(index, 3, tagged(renderBadges(r.Facets)))
 	// Unpushed commits sit beside the facet grid: it is state, like the facets, and
 	// it is what tells you a worktree is not safe to delete.
-	a.table.SetCell(index, 4, styled(r.Unpushed, colorPRDraft, true).SetAlign(tview.AlignRight).SetMaxWidth(3))
-	pr := tagged(renderBadges([]badge{r.PR})).SetAlign(tview.AlignRight).SetMaxWidth(7)
+	a.table.SetCell(index, 4, aligned(styled(r.Unpushed, colorPRDraft, true), 4).SetMaxWidth(3))
+	pr := aligned(tagged(renderBadges([]badge{r.PR})), 5).SetMaxWidth(7)
 	if r.PR.URL != "" {
 		// tcell emits OSC 8 from the style, so the number is clickable in a
 		// terminal that supports it and plain text in one that does not.
@@ -287,7 +300,7 @@ func (a *app) setRow(index int, r row) {
 	}
 	a.table.SetCell(index, 5, pr)
 	a.table.SetCell(index, 6, styled(r.Session, colorMuted, false).SetMaxWidth(38).SetExpansion(1))
-	a.table.SetCell(index, 7, styled(r.Age, colorMuted, false).SetAlign(tview.AlignRight).SetMaxWidth(5))
+	a.table.SetCell(index, 7, aligned(styled(r.Age, colorMuted, false), 7).SetMaxWidth(5))
 }
 
 // selectedBackground is the one thing selection changes. Repainting the whole row

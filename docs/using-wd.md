@@ -138,8 +138,16 @@ popup hits — because a detached session is invisible and "attach with `tmux at
 terminal = ["kitty", "--single-instance", "-e"]   # the command to run is appended
 ```
 
-It must be a **top-level** key, above any `[[repos]]` or `[[hosts]]` table: a bare
-key after a table header belongs to that table, where it is silently ignored.
+It must be a **top-level** key, above any `[[repos]]` or `[[hosts]]` table: in TOML
+a bare key after a table header belongs to that table. Config loading is strict, so
+that mistake is now an error naming the key rather than silence:
+
+```
+wd: unknown key: repos.terminal
+15| terminal = ["kitty", "--single-instance", "-e"]
+  | ~~~~~~~~ missing field
+a top-level key written after a [[table]] header belongs to that table
+```
 
 ## Adding an action
 
