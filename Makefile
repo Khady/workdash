@@ -2,7 +2,7 @@ BINARY := workdash
 NATIVE_HOST := workdash-native-host
 CMD := ./cmd/workdash
 
-.PHONY: all build extension install-firefox uninstall-firefox test vet fmt check run clean
+.PHONY: all build extension install-firefox uninstall-firefox install-core test vet fmt check run clean
 
 all: build
 
@@ -20,6 +20,13 @@ install-firefox: extension
 
 uninstall-firefox:
 	bash scripts/uninstall-firefox.sh
+
+# install-core installs both new frontends together. They share the core, so
+# installing one and forgetting the other leaves you running two different
+# versions of the collector — which is exactly how a fixed bug appeared unfixed.
+install-core:
+	go build -o $(HOME)/.local/bin/wd ./cmd/wd
+	go build -o $(HOME)/.local/bin/wdt ./cmd/wdt
 
 test:
 	go test ./...

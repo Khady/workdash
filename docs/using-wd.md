@@ -10,18 +10,18 @@ this way — the facet model, the two verbs, what got deleted and what that boug
 |---|---|
 | `~/.local/bin/wd` | the binary |
 | `~/.local/bin/wdt` | the TUI — grouped, coloured, recency-ordered |
-| `~/.local/bin/wdt` | the TUI — grouped, coloured, recency-ordered |
 | `~/.local/bin/wd-pick` | fzf picker: workspace → action → run |
 | `~/.config/workdash/wd.toml` | config for `wd`, generated from `config.toml` |
-| `~/.tmux.conf` | one line: `bind w display-popup -E -w 80% -h 80% 'wd-pick'` |
+| `~/.tmux.conf` | `bind w` → `wdt`, `bind W` → `wd-pick`, `bind C-a send-prefix` |
 
 `config.toml` is untouched, so the old `workdash` TUI keeps working unchanged.
 The two configs are independent; nothing is shared.
 
-Rebuild after pulling changes:
+Rebuild after pulling changes — **both**, since they share the collector and
+installing one leaves you running two different versions of it:
 
 ```bash
-go build -o ~/.local/bin/wd ./cmd/wd
+make install-core
 ```
 
 ## The normal way in
