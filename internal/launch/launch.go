@@ -1,18 +1,20 @@
-// Package launch executes resolved actions. It has exactly two verbs.
+// Package launch executes resolved actions.
 //
 // Pane puts a command in a tmux window, which is the substrate for anything
 // interactive: tmux owns the tabs, the scrollback, and the survival of the
 // process, so workdash never has to hand a shell back to a caller or spawn a
-// terminal emulator.
+// terminal emulator. Attach connects to a session that exists, Capture runs a
+// command and returns its output, and Background starts a GUI program detached.
 //
-// Capture runs a command and returns its output for the calling frontend to
-// display.
+// A caller is not always inside tmux — the Firefox host is not — so where a window
+// should appear is asked of tmux rather than assumed from $TMUX.
 package launch
 
 import (
 	"fmt"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -81,42 +83,102 @@ func (t Tmux) Pane(resolved action.Resolved) (string, error) {
 // what the window *is* — which host, session and transport it shows — so the fact
 // lives on the object rather than being encoded in a name for something to parse
 // later. A collector can then report "this window is a view of asia:gwt-x".
+// client is an attached tmux client: where the user is actually looking.
+type client struct {
+	TTY     string
+	Session string
+}
+
+// attachedClient asks tmux which client is attached, most recently active first.
+//
+// This is what makes the browser useful. wd-host runs outside tmux, so deciding
+// by $TMUX alone left every popup action in a detached session with a printed
+// "attach with tmux attach -t …" — advice nobody can follow from a browser. tmux
+// knows where the user is; ask it.
+func (t Tmux) attachedClient() (client, bool) {
+	out, err := t.Runner.Run("", []string{"tmux", "list-clients", "-F", "#{client_activity} #{client_session} #{client_tty}"})
+	if err != nil {
+		return client{}, false
+	}
+	best, bestActivity := client{}, int64(-1)
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		activity, err := strconv.ParseInt(fields[0], 10, 64)
+		if err != nil {
+			continue
+		}
+		if activity > bestActivity {
+			best, bestActivity = client{TTY: fields[2], Session: fields[1]}, activity
+		}
+	}
+	return best, bestActivity >= 0
+}
+
 func (t Tmux) pane(resolved action.Resolved, options map[string]string) (string, error) {
 	name := paneName(resolved)
 	argv := commandArgv(resolved)
-	if t.InsideTmux {
-		// Target the workspace's own session when it has one, so related work
-		// stays together instead of landing in whichever session you happen to be
-		// attached to.
-		target := []string{}
-		if resolved.Session != "" {
-			target = []string{"-t" + exactTarget(resolved.Session) + ":"}
+
+	// Where the window belongs: the workspace's own session when it has one, so
+	// related work stays together rather than landing in whichever session you
+	// happen to be attached to.
+	target := resolved.Session
+
+	// Where the user is looking. Inside tmux that is here, so no client has to be
+	// moved. Outside it — the Firefox host, a cron job — ask tmux.
+	viewer, hasViewer := client{}, false
+	if !t.InsideTmux {
+		viewer, hasViewer = t.attachedClient()
+		if target == "" && hasViewer {
+			// Nothing says where this belongs, so put it where it will be seen.
+			target = viewer.Session
 		}
-		call := append(append([]string{"tmux", "new-window"}, target...),
-			"-P", "-F", "#{window_id}", "-n", name, "-c", resolved.Cwd, "--")
-		call = append(call, argv...)
-		id, err := t.Runner.Run("", call)
-		if err != nil {
-			return "", err
-		}
-		t.stamp(strings.TrimSpace(id), options)
-		return fmt.Sprintf("opened tmux window %q", name), nil
 	}
-	// A workspace may carry several sessions, so this is routinely the second
-	// action on the same branch. Creating a session that already exists fails
-	// with `duplicate session`, so an existing one gets a window instead.
-	if t.hasSession(name) {
-		call := append([]string{"tmux", "new-window", "-t" + exactTarget(name) + ":", "-n", name, "-c", resolved.Cwd, "--"}, argv...)
+
+	if target == "" && !t.InsideTmux && !hasViewer {
+		// Nowhere to show it: leave the work in a session and say how to reach it.
+		// A session named for this workspace may already exist — a second action on
+		// the same branch is routine — and creating it again fails with `duplicate
+		// session`, so an existing one gets a window instead.
+		if t.hasSession(name) {
+			call := append([]string{"tmux", "new-window", "-t" + exactTarget(name) + ":", "-n", name, "-c", resolved.Cwd, "--"}, argv...)
+			if _, err := t.Runner.Run("", call); err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("opened window %q in existing session %q; attach with `tmux attach -t %s`", name, name, name), nil
+		}
+		call := append([]string{"tmux", "new-session", "-d", "-s", name, "-c", resolved.Cwd, "--"}, argv...)
 		if _, err := t.Runner.Run("", call); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("opened window %q in existing session %q; attach with `tmux attach -t %s`", name, name, name), nil
+		return fmt.Sprintf("created detached session %q; attach with `tmux attach -t %s`", name, name), nil
 	}
-	call := append([]string{"tmux", "new-session", "-d", "-s", name, "-c", resolved.Cwd, "--"}, argv...)
-	if _, err := t.Runner.Run("", call); err != nil {
+
+	window := []string{"tmux", "new-window"}
+	if target != "" {
+		window = append(window, "-t"+exactTarget(target)+":")
+	}
+	window = append(window, "-P", "-F", "#{window_id}", "-n", name, "-c", resolved.Cwd, "--")
+	id, err := t.Runner.Run("", append(window, argv...))
+	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("created detached session %q; attach with `tmux attach -t %s`", name, name), nil
+	t.stamp(strings.TrimSpace(id), options)
+
+	where := "here"
+	if target != "" {
+		where = fmt.Sprintf("session %q", target)
+	}
+	// A window in a session the client is not viewing is still invisible, so move
+	// the client to it.
+	if hasViewer && target != "" && target != viewer.Session {
+		if _, err := t.Runner.Run("", []string{"tmux", "switch-client", "-c", viewer.TTY, "-t" + exactTarget(target)}); err != nil {
+			return "", err
+		}
+	}
+	return fmt.Sprintf("opened tmux window %q in %s", name, where), nil
 }
 
 // stamp records what a window is, best effort: failing to label a window is not
@@ -143,13 +205,21 @@ func (t Tmux) Attach(resolved action.Resolved) (string, error) {
 	if resolved.Session == "" {
 		return "", fmt.Errorf("nothing to attach to: %s has no session", resolved.Name)
 	}
-	verb := "attach"
-	if t.InsideTmux {
-		// switch-client moves the client you are already using; attach would try to
-		// nest a session inside itself.
-		verb = "switch-client"
+	// switch-client moves a client that already exists; attach would nest a session
+	// inside itself when we are in tmux, and has nowhere to draw when we are not.
+	call := []string{"tmux", "switch-client", "-t" + exactTarget(resolved.Session)}
+	switch viewer, ok := t.attachedClient(); {
+	case t.InsideTmux:
+		// Our own client is the one to move.
+	case ok:
+		// Called from outside tmux — the Firefox host, a script — so name the
+		// client that is actually on screen.
+		call = []string{"tmux", "switch-client", "-c", viewer.TTY, "-t" + exactTarget(resolved.Session)}
+	default:
+		// No client anywhere: attaching is all that is left, and it needs a tty.
+		call = []string{"tmux", "attach", "-t" + exactTarget(resolved.Session)}
 	}
-	if _, err := t.Runner.Run("", []string{"tmux", verb, "-t" + exactTarget(resolved.Session)}); err != nil {
+	if _, err := t.Runner.Run("", call); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("attached to session %q", resolved.Session), nil

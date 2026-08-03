@@ -20,6 +20,8 @@ type recordedCall struct {
 type recordRunner struct {
 	calls []recordedCall
 	err   error
+	// clients is what `tmux list-clients` reports: "activity session tty" per line.
+	clients string
 	// out is what Run returns for commands the fake does not model specially,
 	// letting a test stand in for output the executor reads back — the grouped
 	// session's generated name, for instance.
@@ -37,6 +39,9 @@ func (r *recordRunner) Run(cwd string, argv []string) (string, error) {
 	// command arrives as remote shell text. Recognising only the direct form
 	// would let the remote path silently take the wrong branch.
 	text := strings.Join(argv, " ")
+	if strings.Contains(text, "list-clients") {
+		return r.clients, nil
+	}
 	if strings.Contains(text, "tmux has-session") {
 		if r.sessions[tmuxTargetName(text)] {
 			return "", nil
@@ -81,6 +86,30 @@ func (r *recordRunner) argv(i int) []string {
 	return r.calls[i].argv
 }
 
+// findCall returns the first recorded call containing want. Assertions go by
+// content rather than index: the executor asks tmux where the user is looking
+// before it does anything, and counting calls made every test brittle to that.
+func findCall(t *testing.T, runner *recordRunner, want string) []string {
+	t.Helper()
+	for i := range runner.calls {
+		if strings.Contains(strings.Join(runner.argv(i), " "), want) {
+			return runner.argv(i)
+		}
+	}
+	t.Fatalf("no call containing %q in %q", want, runner.calls)
+	return nil
+}
+
+func countCalls(runner *recordRunner, want string) int {
+	n := 0
+	for i := range runner.calls {
+		if strings.Contains(strings.Join(runner.argv(i), " "), want) {
+			n++
+		}
+	}
+	return n
+}
+
 func wantArgv(t *testing.T, got, want []string) {
 	t.Helper()
 	if len(got) != len(want) {
@@ -117,11 +146,9 @@ func TestPaneOutsideTmuxCreatesDetachedSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Pane() error = %v", err)
 	}
-	if len(runner.calls) != 2 {
-		t.Fatalf("calls = %d %q, want a has-session probe then new-session", len(runner.calls), runner.calls)
-	}
-	wantArgv(t, runner.argv(0), []string{"tmux", "has-session", "-t=topic"})
-	wantArgv(t, runner.argv(1), []string{"tmux", "new-session", "-d", "-s", "topic", "-c", "/wt/topic", "--", "claude"})
+	wantArgv(t, findCall(t, runner, "has-session"), []string{"tmux", "has-session", "-t=topic"})
+	wantArgv(t, findCall(t, runner, "new-session"),
+		[]string{"tmux", "new-session", "-d", "-s", "topic", "-c", "/wt/topic", "--", "claude"})
 	if !strings.Contains(out, "tmux attach -t topic") {
 		t.Fatalf("message = %q, want attach hint", out)
 	}
@@ -134,11 +161,9 @@ func TestPaneOutsideTmuxAddsWindowWhenSessionExists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Pane() error = %v", err)
 	}
-	if len(runner.calls) != 2 {
-		t.Fatalf("calls = %d %q, want a has-session probe then new-window", len(runner.calls), runner.calls)
-	}
-	wantArgv(t, runner.argv(0), []string{"tmux", "has-session", "-t=topic"})
-	wantArgv(t, runner.argv(1), []string{"tmux", "new-window", "-t=topic:", "-n", "topic", "-c", "/wt/topic", "--", "claude"})
+	wantArgv(t, findCall(t, runner, "has-session"), []string{"tmux", "has-session", "-t=topic"})
+	wantArgv(t, findCall(t, runner, "new-window"),
+		[]string{"tmux", "new-window", "-t=topic:", "-n", "topic", "-c", "/wt/topic", "--", "claude"})
 	if !strings.Contains(out, "topic") || !strings.Contains(out, "window") {
 		t.Fatalf("message = %q, want it to say a window was added to session topic", out)
 	}
@@ -157,10 +182,11 @@ func TestPaneOutsideTmuxTwiceOnSameWorkspaceSucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second Pane() error = %v", err)
 	}
-	if len(runner.calls) != 4 {
-		t.Fatalf("calls = %d %q, want two probes and two creations", len(runner.calls), runner.calls)
+	if got := countCalls(runner, "has-session"); got != 2 {
+		t.Fatalf("has-session probes = %d, want one per call", got)
 	}
-	wantArgv(t, runner.argv(3), []string{"tmux", "new-window", "-t=topic:", "-n", "topic", "-c", "/wt/topic", "--", "htop"})
+	wantArgv(t, findCall(t, runner, "new-window"),
+		[]string{"tmux", "new-window", "-t=topic:", "-n", "topic", "-c", "/wt/topic", "--", "htop"})
 	if !strings.Contains(out, "topic") {
 		t.Fatalf("message = %q, want it to name where the command landed", out)
 	}
@@ -247,7 +273,7 @@ func TestAttachSwitchesClientInsideTmux(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Attach() error = %v", err)
 	}
-	wantArgv(t, runner.argv(0), []string{"tmux", "switch-client", "-t=gwt-local-x"})
+	wantArgv(t, findCall(t, runner, "switch-client"), []string{"tmux", "switch-client", "-t=gwt-local-x"})
 	if !strings.Contains(out, "gwt-local-x") {
 		t.Fatalf("message = %q, want it to name the session", out)
 	}
@@ -259,7 +285,7 @@ func TestAttachAttachesWhenOutsideTmux(t *testing.T) {
 	if _, err := tmux.Attach(action.Resolved{ID: "attach", Name: "topic", Session: "sess"}); err != nil {
 		t.Fatalf("Attach() error = %v", err)
 	}
-	wantArgv(t, runner.argv(0), []string{"tmux", "attach", "-t=sess"})
+	wantArgv(t, findCall(t, runner, "tmux attach"), []string{"tmux", "attach", "-t=sess"})
 }
 
 func TestAttachRefusesWithoutASession(t *testing.T) {
@@ -303,4 +329,75 @@ func TestBackgroundReportsAFailureToStart(t *testing.T) {
 	if _, err := tmux.Background(action.Resolved{ID: "open-pr", Argv: []string{"firefox"}}); err == nil {
 		t.Fatal("Background() error = nil, want the start failure")
 	}
+}
+
+// The Firefox host runs outside tmux, so the old "no TMUX, make a detached
+// session" path left the work in a session nobody was looking at and printed
+// "attach with tmux attach -t …" into a browser popup. What it should do is put
+// the window where your eyes already are: tmux tells us which client is attached
+// and to what.
+func TestPaneOutsideTmuxTargetsTheAttachedClientsSession(t *testing.T) {
+	runner := &recordRunner{clients: "1785750608 work /dev/pts/8"}
+	tmux := Tmux{Runner: runner, InsideTmux: false}
+	out, err := tmux.Pane(action.Resolved{ID: "shell", Name: "topic",
+		Argv: []string{"bash"}, Cwd: "/wt/topic"})
+	if err != nil {
+		t.Fatalf("Pane() error = %v", err)
+	}
+	all := ""
+	for i := range runner.calls {
+		all += strings.Join(runner.argv(i), " ") + "\n"
+	}
+	if strings.Contains(all, "new-session") {
+		t.Fatalf("calls:\n%s\nwant no detached session when a client is attached", all)
+	}
+	if !strings.Contains(all, "new-window -t=work:") {
+		t.Fatalf("calls:\n%s\nwant the window created in the attached client's session", all)
+	}
+	if !strings.Contains(out, "work") {
+		t.Fatalf("message = %q, want it to name where the window went", out)
+	}
+}
+
+// A window created in another session would still be invisible, so the client has
+// to be moved to it.
+func TestPaneOutsideTmuxSwitchesTheClientToTheWorkspaceSession(t *testing.T) {
+	runner := &recordRunner{clients: "1785750608 zero /dev/pts/8", sessions: map[string]bool{"gwt-x": true}}
+	tmux := Tmux{Runner: runner, InsideTmux: false}
+	if _, err := tmux.Pane(action.Resolved{ID: "shell", Name: "topic", Session: "gwt-x",
+		Argv: []string{"bash"}, Cwd: "/wt/topic"}); err != nil {
+		t.Fatalf("Pane() error = %v", err)
+	}
+	all := ""
+	for i := range runner.calls {
+		all += strings.Join(runner.argv(i), " ") + "\n"
+	}
+	if !strings.Contains(all, "new-window -t=gwt-x:") {
+		t.Fatalf("calls:\n%s\nwant the window in the workspace's own session", all)
+	}
+	if !strings.Contains(all, "switch-client -c /dev/pts/8 -t=gwt-x") {
+		t.Fatalf("calls:\n%s\nwant the attached client moved to it", all)
+	}
+}
+
+func TestPaneOutsideTmuxWithNoClientStillCreatesADetachedSession(t *testing.T) {
+	runner := &recordRunner{}
+	tmux := Tmux{Runner: runner, InsideTmux: false}
+	out, err := tmux.Pane(action.Resolved{ID: "shell", Name: "topic", Argv: []string{"bash"}, Cwd: "/wt"})
+	if err != nil {
+		t.Fatalf("Pane() error = %v", err)
+	}
+	if !strings.Contains(out, "attach") {
+		t.Fatalf("message = %q, want the attach hint when there is nowhere to show it", out)
+	}
+}
+
+func TestAttachOutsideTmuxSwitchesTheAttachedClient(t *testing.T) {
+	runner := &recordRunner{clients: "1785750608 zero /dev/pts/8"}
+	tmux := Tmux{Runner: runner, InsideTmux: false}
+	if _, err := tmux.Attach(action.Resolved{ID: "attach", Name: "topic", Session: "gwt-x"}); err != nil {
+		t.Fatalf("Attach() error = %v", err)
+	}
+	wantArgv(t, runner.argv(len(runner.calls)-1),
+		[]string{"tmux", "switch-client", "-c", "/dev/pts/8", "-t=gwt-x"})
 }
