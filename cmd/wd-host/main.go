@@ -1,6 +1,6 @@
 // Command wd-host is the Firefox native-messaging bridge over the workdash core.
 //
-// It replaces the daemon-backed workdash-native-host: there is no daemon and no
+// It replaces a daemon-backed host: there is no daemon and no
 // socket, because there is nothing for one to own. A snapshot is a projection over
 // git, tmux and GitHub, so every request rebuilds it from the same code `wd` and
 // `wdt` run — which is what keeps the browser from being a frontend that quietly

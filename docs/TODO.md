@@ -41,23 +41,6 @@ heuristic and was deliberately left out.
 Model change it needs: the session facet gains windows, which ripples into the
 TUI columns and `wd ls --json`.
 
-## Land the rewrite
-
-### Delete the legacy tree
-6,393 lines of Go — `internal/{ui,source,daemon,config,actions,loader,search,logging,model}`,
-`cmd/workdash`, `cmd/workdash-native-host` — plus `shell/workdash.sh`, `--emit`,
-`--emit-path`, the `# workdash:relaunch=always` sentinel and `ToShell()`.
-
-Verified safe: `go list -deps` shows no new package imports any legacy one, so
-this is removal rather than untangling. Blocked on nothing now that `cmd/wd-host`
-serves the extension.
-
-Note: `make install-firefox` no longer touches the daemon units, so an installed
-`workdash.socket` keeps running until `make uninstall-firefox`.
-
-### Rewrite README
-It documents the old TUI exclusively, with a note at the top pointing here.
-
 ## Smaller gaps
 
 - **`prunable` worktrees.** The old `PathMissing` flagged a worktree whose
