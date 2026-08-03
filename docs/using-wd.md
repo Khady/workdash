@@ -63,7 +63,10 @@ asia   (unlinked) claude rc monorepo     session
 ```
 
 The columns are host, repo, branch, the `W S` facet grid, PR number, session
-detail and age. The PR number is a terminal hyperlink — clickable where your
+the `↑` unpushed count, PR number, session detail and age. `↑` shows `+3` when
+three commits exist only on this branch, and `∅` when the branch has no upstream
+at all — both are what you want to know before deleting a worktree. The PR number
+is a terminal hyperlink — clickable where your
 terminal supports OSC 8, plain text where it does not. There is no `P` slot in the
 grid: the PR column already shows the
 number, and a badge saying "there is a PR" beside it is the same fact twice. **Facets are the

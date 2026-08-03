@@ -23,14 +23,16 @@ type badge struct {
 // row is everything one line of the table shows. It is derived once per snapshot
 // so that filtering and redrawing never re-walk the workspace model.
 type row struct {
-	WS      workspace.Workspace
-	Host    string
-	Repo    string
-	Branch  string
-	Facets  []badge
-	PR      badge
-	Session string
-	Age     string
+	WS       workspace.Workspace
+	Host     string
+	Repo     string
+	Branch   string
+	Facets   []badge
+	PR       badge
+	Session  string
+	Unpushed string
+	PRTitle  string
+	Age      string
 	// Unlinked marks a tmux session that matches no worktree workdash knows
 	// about. The snapshot reports those rather than hiding them, so the table
 	// does too — but they are not workspaces, so no action resolves for them.
@@ -136,7 +138,10 @@ func buildRows(now time.Time, snap workspace.Snapshot) []row {
 			ID:       workspace.ID{Host: orphan.Host, Branch: orphan.Session.Name},
 			Sessions: []workspace.Session{orphan.Session},
 		}
-		rows = append(rows, rowFor(now, ws, "(unlinked)", true))
+		r := rowFor(now, ws, "(unlinked)", true)
+		// An unlinked session is not a branch, so it has no upstream to be ahead of.
+		r.Unpushed = ""
+		rows = append(rows, r)
 	}
 	return rows
 }
@@ -151,10 +156,19 @@ func rowFor(now time.Time, ws workspace.Workspace, repo string, unlinked bool) r
 		Facets:   facetBadges(ws),
 		PR:       prBadge(ws),
 		Session:  session,
+		Unpushed: unpushed(ws),
+		PRTitle:  prTitle(ws),
 		Age:      formatAge(now, ws.CommittedAt),
 		Unlinked: unlinked,
 		haystack: strings.ToLower(strings.Join([]string{ws.ID.Host, repo, ws.ID.Branch, sessionNames(ws)}, " ")),
 	}
+}
+
+func prTitle(ws workspace.Workspace) string {
+	if ws.PR == nil {
+		return ""
+	}
+	return ws.PR.Title
 }
 
 func sessionNames(ws workspace.Workspace) string {
@@ -199,6 +213,20 @@ func matchesView(r row, v view) bool {
 		return v.Unlinked
 	}
 	return workspace.Matches(r.WS, v.Needs)
+}
+
+// unpushed reports commits that exist only here. "+3" means three commits are on
+// this branch and nowhere else; "∅" means the branch has no upstream at all, so
+// none of it is pushed anywhere. Both are things to know before deleting a
+// worktree, which is what the old dashboard used the count for.
+func unpushed(ws workspace.Workspace) string {
+	if ws.Upstream == "" {
+		return "∅"
+	}
+	if ws.Ahead == 0 {
+		return ""
+	}
+	return fmt.Sprintf("+%d", ws.Ahead)
 }
 
 func matchesFilter(r row, query string) bool {

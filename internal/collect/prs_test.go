@@ -259,3 +259,25 @@ func TestPRsToleratesNullHeadRepository(t *testing.T) {
 		t.Fatalf("records = %+v, want the base match with an empty head", records)
 	}
 }
+
+// The old dashboard showed the PR title on its PR rows; a number alone does not
+// tell you which PR it is. It is one more field in a query already being made.
+func TestPRsRecordsTheTitle(t *testing.T) {
+	body := `{"data":{"search":{"nodes":[{"number":7,"url":"u","isDraft":false,"state":"OPEN",` +
+		`"title":"[AA] add ATD docs for shared jsonschema types",` +
+		`"headRefName":"topic","repository":{"nameWithOwner":"o/r"},"headRepository":null}]}}}`
+	runner := newFakeEnvRunner(t, map[string]string{strings.Join(prsArgv(), " "): body})
+	records, err := PRs(runner, "")
+	if err != nil {
+		t.Fatalf("PRs() error = %v", err)
+	}
+	if len(records) != 1 || records[0].PR.Title != "[AA] add ATD docs for shared jsonschema types" {
+		t.Fatalf("record = %+v, want the title carried", records)
+	}
+}
+
+func TestPRsQueryAsksForTheTitle(t *testing.T) {
+	if !strings.Contains(prsQuery, "title") {
+		t.Fatalf("query does not request the title:\n%s", prsQuery)
+	}
+}

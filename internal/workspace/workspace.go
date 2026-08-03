@@ -46,6 +46,7 @@ type Session struct {
 
 type PR struct {
 	Number int    `json:"number"`
+	Title  string `json:"title,omitempty"`
 	URL    string `json:"url"`
 	State  string `json:"state"`
 	Draft  bool   `json:"draft"`
@@ -71,8 +72,13 @@ type Workspace struct {
 	// is what makes a long list navigable, so it is collected even though nothing
 	// else needs it.
 	CommittedAt *time.Time `json:"committed_at,omitempty"`
-	Sessions    []Session  `json:"sessions,omitempty"`
-	PR          *PR        `json:"pr,omitempty"`
+	// Upstream is the tracking branch, empty when there is none. Ahead is how many
+	// commits are unpushed — worth seeing before deleting a worktree, which is why
+	// the old dashboard showed "+1 unpushed".
+	Upstream string    `json:"upstream,omitempty"`
+	Ahead    int       `json:"ahead,omitempty"`
+	Sessions []Session `json:"sessions,omitempty"`
+	PR       *PR       `json:"pr,omitempty"`
 }
 
 func (w Workspace) Has(facet string) bool {

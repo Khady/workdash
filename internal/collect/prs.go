@@ -13,7 +13,7 @@ import (
 // is what narrows the result, and it is also why plain issues come back as empty
 // objects that parseSearch has to drop.
 const prsQuery = `query($q: String!) { search(query: $q, type: ISSUE, first: 100) ` +
-	`{ nodes { ... on PullRequest { number url isDraft state headRefName repository { nameWithOwner } ` +
+	`{ nodes { ... on PullRequest { number url title isDraft state headRefName repository { nameWithOwner } ` +
 	`headRepository { nameWithOwner } } } } }`
 
 // prsSearch is passed as a GraphQL variable rather than interpolated into the
@@ -74,6 +74,7 @@ type searchResponse struct {
 				URL         string `json:"url"`
 				IsDraft     bool   `json:"isDraft"`
 				State       string `json:"state"`
+				Title       string `json:"title"`
 				HeadRefName string `json:"headRefName"`
 				Repository  struct {
 					NameWithOwner string `json:"nameWithOwner"`
@@ -110,6 +111,7 @@ func parseSearch(out string) ([]workspace.PRRecord, error) {
 			Branch:       node.HeadRefName,
 			PR: workspace.PR{
 				Number: node.Number,
+				Title:  node.Title,
 				URL:    node.URL,
 				// The state is passed through verbatim. Interpreting it here would
 				// put GitHub's vocabulary in two places, and the renderer already

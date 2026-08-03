@@ -241,7 +241,7 @@ func (a *app) populate(preserve bool) {
 	}
 	a.shown = filterRows(a.rows, a.query, a.view)
 	a.table.Clear()
-	for column, title := range []string{"HOST", "REPO", "BRANCH", "W S", "PR", "SESSION", "AGE"} {
+	for column, title := range []string{"HOST", "REPO", "BRANCH", "W S", "↑", "PR", "SESSION", "AGE"} {
 		a.table.SetCell(0, column, tview.NewTableCell(title).
 			SetTextColor(tcell.GetColor(colorMuted)).
 			SetSelectable(false))
@@ -276,15 +276,18 @@ func (a *app) setRow(index int, r row) {
 	a.table.SetCell(index, 1, styled(r.Repo, colorMuted, false).SetMaxWidth(18))
 	a.table.SetCell(index, 2, styled(r.Branch, branchColor, !r.Unlinked).SetMaxWidth(46).SetExpansion(1))
 	a.table.SetCell(index, 3, tagged(renderBadges(r.Facets)))
+	// Unpushed commits sit beside the facet grid: it is state, like the facets, and
+	// it is what tells you a worktree is not safe to delete.
+	a.table.SetCell(index, 4, styled(r.Unpushed, colorPRDraft, true).SetAlign(tview.AlignRight).SetMaxWidth(3))
 	pr := tagged(renderBadges([]badge{r.PR})).SetAlign(tview.AlignRight).SetMaxWidth(7)
 	if r.PR.URL != "" {
 		// tcell emits OSC 8 from the style, so the number is clickable in a
 		// terminal that supports it and plain text in one that does not.
 		pr.SetStyle(pr.Style.Url(r.PR.URL))
 	}
-	a.table.SetCell(index, 4, pr)
-	a.table.SetCell(index, 5, styled(r.Session, colorMuted, false).SetMaxWidth(38).SetExpansion(1))
-	a.table.SetCell(index, 6, styled(r.Age, colorMuted, false).SetAlign(tview.AlignRight).SetMaxWidth(5))
+	a.table.SetCell(index, 5, pr)
+	a.table.SetCell(index, 6, styled(r.Session, colorMuted, false).SetMaxWidth(38).SetExpansion(1))
+	a.table.SetCell(index, 7, styled(r.Age, colorMuted, false).SetAlign(tview.AlignRight).SetMaxWidth(5))
 }
 
 // selectedBackground is the one thing selection changes. Repainting the whole row

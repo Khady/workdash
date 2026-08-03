@@ -368,3 +368,33 @@ func TestPRBadgeCarriesTheURL(t *testing.T) {
 		t.Fatal("a workspace with no PR should carry no url")
 	}
 }
+
+// "+1 unpushed" is the thing you want to see before deleting a worktree, which is
+// exactly what the old dashboard used it for.
+func TestUnpushedSummarisesAheadCount(t *testing.T) {
+	if got := unpushed(workspace.Workspace{Upstream: "origin/topic", Ahead: 3}); got != "+3" {
+		t.Fatalf("unpushed = %q, want +3", got)
+	}
+	if got := unpushed(workspace.Workspace{Upstream: "origin/topic"}); got != "" {
+		t.Fatalf("unpushed = %q, want empty when nothing is ahead", got)
+	}
+	// No upstream at all is worth flagging too: nothing is pushed anywhere.
+	if got := unpushed(workspace.Workspace{}); got != "∅" {
+		t.Fatalf("unpushed = %q, want the no-upstream marker", got)
+	}
+}
+
+func TestBuildRowsCarriesUnpushedAndPRTitle(t *testing.T) {
+	snap := workspace.Snapshot{Workspaces: []workspace.Workspace{{
+		ID: workspace.ID{Host: "asia", Repo: "/r", Branch: "louis/x"}, RepoLabel: "monorepo",
+		Upstream: "origin/louis/x", Ahead: 1,
+		PR: &workspace.PR{Number: 7, State: "OPEN", Title: "make it faster"},
+	}}}
+	rows := buildRows(time.Now(), snap)
+	if rows[0].Unpushed != "+1" {
+		t.Fatalf("row unpushed = %q, want +1", rows[0].Unpushed)
+	}
+	if rows[0].PRTitle != "make it faster" {
+		t.Fatalf("row pr title = %q, want the title", rows[0].PRTitle)
+	}
+}

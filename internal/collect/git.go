@@ -1,6 +1,7 @@
 package collect
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -21,7 +22,9 @@ var (
 	// and never merges with its own worktree.
 	// The commit date rides along in the same command: recency ordering is what
 	// makes a long list navigable, and asking for it here costs nothing extra.
-	branchArgv = []string{"git", "for-each-ref", "--format=%(refname:lstrip=2)%09%(committerdate:unix)", "refs/heads"}
+	branchArgv = []string{"git", "for-each-ref",
+		"--format=%(refname:lstrip=2)%09%(committerdate:unix)%09%(upstream:short)%09%(upstream:track)",
+		"refs/heads"}
 	// The remote is what gives a repo its "owner/name", which is the only thing a
 	// pull request can be matched on: GitHub knows nothing about local paths.
 	remoteArgv = []string{"git", "remote", "get-url", "origin"}
@@ -82,19 +85,45 @@ func Git(runner Runner, host string, repo Repo) ([]workspace.GitRecord, error) {
 func parseBranches(out, host string, repo Repo) []workspace.GitRecord {
 	records := []workspace.GitRecord{}
 	for _, line := range strings.Split(out, "\n") {
-		branch, date, _ := strings.Cut(strings.TrimRight(line, "\r"), "\t")
-		branch = strings.TrimSpace(branch)
+		fields := strings.Split(strings.TrimRight(line, "\r"), "\t")
+		branch := strings.TrimSpace(fields[0])
 		if branch == "" {
 			continue
 		}
-		records = append(records, workspace.GitRecord{
-			ID:          workspace.ID{Host: host, Repo: repo.Root, Branch: branch},
-			RepoLabel:   repo.Label,
-			CommittedAt: parseUnixTime(date),
-		})
+		record := workspace.GitRecord{
+			ID:        workspace.ID{Host: host, Repo: repo.Root, Branch: branch},
+			RepoLabel: repo.Label,
+		}
+		if len(fields) > 1 {
+			record.CommittedAt = parseUnixTime(fields[1])
+		}
+		if len(fields) > 2 {
+			record.Upstream = strings.TrimSpace(fields[2])
+		}
+		if len(fields) > 3 {
+			record.Ahead = parseAhead(fields[3])
+		}
+		records = append(records, record)
 	}
 	return records
 }
+
+// parseAhead reads the ahead count out of git's track field, which looks like
+// "[ahead 3]" or "[ahead 2, behind 5]". Only ahead matters here: behind is work
+// you have not pulled, not work you could lose.
+func parseAhead(track string) int {
+	match := aheadPattern.FindStringSubmatch(track)
+	if match == nil {
+		return 0
+	}
+	count, err := strconv.Atoi(match[1])
+	if err != nil {
+		return 0
+	}
+	return count
+}
+
+var aheadPattern = regexp.MustCompile(`ahead (\d+)`)
 
 // parseUnixTime tolerates an absent or unparseable date: a branch with no
 // timestamp is still a branch, it just sorts after the dated ones.

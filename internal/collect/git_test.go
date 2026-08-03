@@ -210,3 +210,42 @@ func TestBranchArgvAsksForTheCommitDate(t *testing.T) {
 		t.Fatalf("branch argv = %q, want the commit date in the format", joined)
 	}
 }
+
+// The upstream and the ahead count ride along in the same for-each-ref, exactly
+// as the old dashboard got them: "+1 unpushed" is a thing you want to see before
+// deleting a worktree, and it costs no extra command.
+func TestParseBranchesReadsUpstreamAndAhead(t *testing.T) {
+	out := "main\t1700000000\torigin/main\t\n" +
+		"topic\t1700000001\torigin/topic\t[ahead 3]\n" +
+		"mixed\t1700000002\torigin/mixed\t[ahead 2, behind 5]\n" +
+		"local-only\t1700000003\t\t\n"
+	records := parseBranches(out, "local", Repo{Root: "/repo", Label: "repo"})
+	if len(records) != 4 {
+		t.Fatalf("records = %d, want 4", len(records))
+	}
+	byBranch := map[string]workspace.GitRecord{}
+	for _, r := range records {
+		byBranch[r.ID.Branch] = r
+	}
+	if got := byBranch["main"]; got.Upstream != "origin/main" || got.Ahead != 0 {
+		t.Fatalf("main = upstream %q ahead %d, want origin/main and 0", got.Upstream, got.Ahead)
+	}
+	if got := byBranch["topic"]; got.Ahead != 3 {
+		t.Fatalf("topic ahead = %d, want 3", got.Ahead)
+	}
+	if got := byBranch["mixed"]; got.Ahead != 2 {
+		t.Fatalf("mixed ahead = %d, want 2 (behind is not unpushed)", got.Ahead)
+	}
+	if got := byBranch["local-only"]; got.Upstream != "" || got.Ahead != 0 {
+		t.Fatalf("local-only = upstream %q ahead %d, want empty and 0", got.Upstream, got.Ahead)
+	}
+}
+
+func TestBranchArgvAsksForUpstreamAndTrack(t *testing.T) {
+	joined := strings.Join(branchArgv, " ")
+	for _, want := range []string{"upstream:short", "upstream:track"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("branch argv = %q, want %s in the format", joined, want)
+		}
+	}
+}
