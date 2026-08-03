@@ -271,3 +271,38 @@ func TestResolveAppliesScopeAndHostsTogether(t *testing.T) {
 		t.Fatalf("resolved on eu = %+v, want none: hosts still narrows further", got)
 	}
 }
+
+// A run_on = "local" action runs on this machine, so the workspace's path — which
+// is a path on the remote host — is not a directory it can start in. Setting it
+// made the child's chdir fail, and with Setsid Go reports that as
+// "fork/exec /home/louis/.local/bin/zed: no such file or directory", naming the
+// binary and looking for all the world like zed was missing.
+func TestResolveDoesNotGiveALocalActionARemoteCwd(t *testing.T) {
+	remote := ws()
+	remote.ID.Host = "asia"
+	remote.SSHTarget = "me@asia"
+	remote.Worktree = &workspace.Worktree{Path: "/home/me/Code/monorepo"}
+	defs := []wdconf.Action{{ID: "zed-remote", Scope: wdconf.ScopeRemote, RunOn: wdconf.RunOnLocal,
+		Needs: []string{workspace.FacetWorktree}, Where: "background",
+		Argv: []string{"zed", "ssh://{ssh_target}{path}"}}}
+	got := Resolve(remote, defs)
+	if len(got) != 1 {
+		t.Fatalf("resolved = %+v, want the action", got)
+	}
+	if got[0].Cwd != "" {
+		t.Fatalf("cwd = %q, want empty: that path exists only on asia", got[0].Cwd)
+	}
+	if got[0].Argv[1] != "ssh://me@asia/home/me/Code/monorepo" {
+		t.Fatalf("argv = %q, want the remote path still in the URL", got[0].Argv)
+	}
+}
+
+// A local action on a local workspace still gets the worktree, which does exist.
+func TestResolveKeepsTheCwdForALocalWorkspace(t *testing.T) {
+	defs := []wdconf.Action{{ID: "zed", RunOn: wdconf.RunOnLocal,
+		Needs: []string{workspace.FacetWorktree}, Where: "background", Argv: []string{"zed", "{path}"}}}
+	got := Resolve(ws(), defs)
+	if len(got) != 1 || got[0].Cwd != "/wt/topic" {
+		t.Fatalf("resolved = %+v, want cwd /wt/topic", got)
+	}
+}

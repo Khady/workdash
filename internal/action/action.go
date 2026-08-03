@@ -62,7 +62,7 @@ func Resolve(ws workspace.Workspace, defs []wdconf.Action) []Resolved {
 		if !ok {
 			continue
 		}
-		cwd, ok := resolveCwd(def.Cwd, values)
+		cwd, ok := resolveCwd(def, ws, values)
 		if !ok {
 			continue
 		}
@@ -88,11 +88,19 @@ func Resolve(ws workspace.Workspace, defs []wdconf.Action) []Resolved {
 // a pull request in a browser — stays available on a workspace that has no
 // worktree. A configured cwd is a requirement, and an unresolvable one drops the
 // action rather than running it somewhere unintended.
-func resolveCwd(cwd string, values map[string]string) (string, bool) {
-	if cwd == "" {
+//
+// An action that runs locally against a remote workspace gets no default cwd: the
+// worktree path exists on the other machine. Setting it made the child's chdir
+// fail, which Go reports as "fork/exec <program>: no such file or directory" —
+// naming the program and looking exactly like the program was missing.
+func resolveCwd(def wdconf.Action, ws workspace.Workspace, values map[string]string) (string, bool) {
+	if def.Cwd == "" {
+		if def.RunOn == wdconf.RunOnLocal && ws.ID.Host != wdconf.LocalHost {
+			return "", true
+		}
 		return values["{path}"], true
 	}
-	return render(cwd, values)
+	return render(def.Cwd, values)
 }
 
 func firstSession(ws workspace.Workspace) string {
