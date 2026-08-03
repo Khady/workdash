@@ -39,7 +39,11 @@ func (r Remote) Pane(resolved action.Resolved) (string, error) {
 	create := []string{"tmux", "new-session", "-d", "-s", name, "-c", resolved.Cwd, "--"}
 	verb := "created remote session"
 	if resolved.Session != "" || r.hasSession(name) {
-		create = []string{"tmux", "new-window", "-t" + exactTarget(name) + ":", "-n", paneName(resolved), "-c", resolved.Cwd, "--"}
+		// No -n: tmux names the window after what is running and keeps that
+		// current. Passing a name would pin it and disable automatic-rename, and
+		// the branch is already the session's name — repeating it on every window
+		// says nothing.
+		create = []string{"tmux", "new-window", "-t" + exactTarget(name) + ":", "-c", resolved.Cwd, "--"}
 		verb = "opened a window in remote session"
 	}
 	if _, err := r.ssh(append(create, argv...)); err != nil {
@@ -84,12 +88,20 @@ func (r Remote) view(resolved action.Resolved, session string) (string, error) {
 		session, resolved.Host, r.transportName(resolved)), nil
 }
 
-// windowName says what the window is, not just where it points: which host, and
-// which transport carries it. Without the transport there is no way to tell a
-// mosh view from an ssh one by looking at your window list.
+// windowName says which host and branch the window shows, and names the transport
+// only when it is not the default. ssh carries nearly everything, so labelling it
+// everywhere is noise; mosh is the exception worth seeing, since it is the one
+// without agent or port forwarding.
 func (r Remote) windowName(resolved action.Resolved) string {
-	return r.transportName(resolved) + "·" + resolved.Host + "/" + paneName(resolved)
+	where := resolved.Host + "/" + paneName(resolved)
+	if transport := r.transportName(resolved); transport != defaultTransport {
+		return transport + "·" + where
+	}
+	return where
 }
+
+// defaultTransport is the one that needs no announcing.
+const defaultTransport = "ssh"
 
 func (r Remote) transportName(resolved action.Resolved) string {
 	transport := r.AttachArgv
@@ -97,7 +109,7 @@ func (r Remote) transportName(resolved action.Resolved) string {
 		transport = resolved.Attach
 	}
 	if len(transport) == 0 {
-		return "ssh"
+		return defaultTransport
 	}
 	return transport[0]
 }

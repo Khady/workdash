@@ -318,3 +318,44 @@ func TestRemoteAttachCreatesNothingBeforeAttaching(t *testing.T) {
 		t.Fatalf("calls:\n%s\nwant no pre-created session to have to clean up", all)
 	}
 }
+
+// The remote window gets no name at all: tmux names it after what is running and
+// keeps that current, which is what the sessions gwt creates already look like
+// (bash, yclaude, notes). Passing -n would pin the name AND disable
+// automatic-rename, so a window opened for bash would still say "bash" after you
+// started vim in it. The branch is already the session's name, so repeating it on
+// every window says nothing.
+func TestRemotePaneLetsTmuxNameTheRemoteWindow(t *testing.T) {
+	runner := &recordRunner{sessions: map[string]bool{"gwt-x": true}}
+	resolved := remoteResolved()
+	resolved.Session = "gwt-x"
+	if _, err := remoteFixture(runner, true).Pane(resolved); err != nil {
+		t.Fatalf("Pane() error = %v", err)
+	}
+	create := remoteCommands(runner)[0]
+	if !strings.Contains(create, "new-window") {
+		t.Fatalf("remote command = %q, want a new window", create)
+	}
+	if strings.Contains(create, " -n ") {
+		t.Fatalf("remote command = %q, want no -n: it pins the name and disables automatic-rename", create)
+	}
+}
+
+// The transport is shown only when it is not the default. ssh carries nearly
+// everything, so naming it on every window is noise; mosh is the exception worth
+// seeing, because it is the one without agent or port forwarding.
+func TestRemoteWindowNameOmitsSSHAndShowsMosh(t *testing.T) {
+	runner := &recordRunner{sessions: map[string]bool{"gwt-x": true}}
+	overSSH := Remote{Runner: runner, Target: "me@asia",
+		AttachArgv: []string{"ssh", "-A", "-t"}, Local: Tmux{Runner: runner, InsideTmux: true}}
+	resolved := remoteResolved()
+	resolved.Session = "gwt-x"
+	if got := overSSH.windowName(resolved); got != "asia/topic" {
+		t.Fatalf("ssh window name = %q, want asia/topic with no transport", got)
+	}
+	overMosh := resolved
+	overMosh.Attach = []string{"mosh", "-p", "25300:25399", "--"}
+	if got := overSSH.windowName(overMosh); got != "mosh·asia/topic" {
+		t.Fatalf("mosh window name = %q, want the transport shown", got)
+	}
+}
