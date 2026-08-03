@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/rivo/tview"
 	"strings"
 	"time"
 
@@ -84,4 +85,20 @@ func actionDetail(resolved action.Resolved) string {
 // the title of the menu is also a selector that can be pasted into `wd run`.
 func menuTitle(r row) string {
 	return r.Host + ":" + r.Repo + ":" + r.Branch
+}
+
+// prompt is the top-left line: which view is active, and the filter you are
+// typing. The view has to be on screen — a filtered list with no indication of
+// why is indistinguishable from a broken one, which is why the old dashboard put
+// its mode there too.
+func prompt(query string, viewIndex int) string {
+	label := views[0].Label
+	if viewIndex >= 0 && viewIndex < len(views) {
+		label = views[viewIndex].Label
+	}
+	head := "[" + colorText + "]" + label + "[" + colorMuted + "] (tab)"
+	if query == "" {
+		return head + "  ·  type to filter"
+	}
+	return head + "  ·  filter [-]" + tview.Escape(query) + "[" + colorSession + "]▏"
 }

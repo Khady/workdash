@@ -49,7 +49,7 @@ func Resolve(ws workspace.Workspace, defs []wdconf.Action) []Resolved {
 	values := placeholders(ws)
 	resolved := []Resolved{}
 	for _, def := range defs {
-		if !hasFacets(ws, def.Needs) {
+		if !workspace.Matches(ws, def.Needs) {
 			continue
 		}
 		if !onHost(ws.ID.Host, def.Hosts) {
@@ -92,12 +92,6 @@ func resolveCwd(cwd string, values map[string]string) (string, bool) {
 	return render(cwd, values)
 }
 
-// hasFacets evaluates `needs`. A "!" prefix negates, so an action can require a
-// facet to be absent — "create worktree" belongs only on workspaces that have
-// none. Facet absence is a first-class state, so the action language has to be
-// able to select on it.
-// onHost reports whether an action applies to a host. An empty list means every
-// host, so scoping is opt-in.
 func firstSession(ws workspace.Workspace) string {
 	if len(ws.Sessions) == 0 {
 		return ""
@@ -105,6 +99,8 @@ func firstSession(ws workspace.Workspace) string {
 	return ws.Sessions[0].Name
 }
 
+// onHost reports whether an action applies to a host. An empty list means every
+// host, so scoping is opt-in.
 func onHost(host string, hosts []string) bool {
 	if len(hosts) == 0 {
 		return true
@@ -115,19 +111,6 @@ func onHost(host string, hosts []string) bool {
 		}
 	}
 	return false
-}
-
-func hasFacets(ws workspace.Workspace, needs []string) bool {
-	for _, facet := range needs {
-		want := true
-		if strings.HasPrefix(facet, "!") {
-			want, facet = false, strings.TrimPrefix(facet, "!")
-		}
-		if ws.Has(facet) != want {
-			return false
-		}
-	}
-	return true
 }
 
 func placeholders(ws workspace.Workspace) map[string]string {

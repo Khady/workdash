@@ -166,6 +166,38 @@ func sessionNames(ws workspace.Workspace) string {
 // case-insensitive substring of host, repo, branch and session names. Terms
 // rather than one string because the useful query is two coordinates at once —
 // "asia dune" — and the fields they match are in no fixed order on the line.
+// view is one of the old dashboard's Tab-cycled modes, expressed as facet
+// requirements: those modes were always "show me the things that have X".
+type view struct {
+	Label string
+	Needs []string
+	// Unlinked says whether sessions with no workspace belong in this view. They
+	// are sessions, so All and Tmux show them; they are not branches, so the
+	// worktree, PR and branch views do not.
+	Unlinked bool
+}
+
+var views = []view{
+	{Label: "All", Unlinked: true},
+	{Label: "Tmux", Needs: []string{workspace.FacetSession}, Unlinked: true},
+	{Label: "Worktrees", Needs: []string{workspace.FacetWorktree}},
+	{Label: "PRs", Needs: []string{workspace.FacetPR}},
+	// "Branches" in the old dashboard meant the ones checked out nowhere, which is
+	// facet absence rather than a kind of its own.
+	{Label: "Branches", Needs: []string{"!" + workspace.FacetWorktree}},
+}
+
+func nextView(current, delta int) int {
+	return ((current+delta)%len(views) + len(views)) % len(views)
+}
+
+func matchesView(r row, v view) bool {
+	if r.Unlinked {
+		return v.Unlinked
+	}
+	return workspace.Matches(r.WS, v.Needs)
+}
+
 func matchesFilter(r row, query string) bool {
 	for _, term := range strings.Fields(strings.ToLower(query)) {
 		if !strings.Contains(r.haystack, term) {
@@ -175,10 +207,14 @@ func matchesFilter(r row, query string) bool {
 	return true
 }
 
-func filterRows(rows []row, query string) []row {
+func filterRows(rows []row, query string, viewIndex int) []row {
+	v := views[0]
+	if viewIndex >= 0 && viewIndex < len(views) {
+		v = views[viewIndex]
+	}
 	matched := make([]row, 0, len(rows))
 	for _, r := range rows {
-		if matchesFilter(r, query) {
+		if matchesView(r, v) && matchesFilter(r, query) {
 			matched = append(matched, r)
 		}
 	}

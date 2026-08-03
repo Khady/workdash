@@ -246,15 +246,15 @@ func TestMatchesFilter(t *testing.T) {
 func TestFilterRowsKeepsOrderAndNeverReturnsNil(t *testing.T) {
 	now := time.Date(2026, 7, 28, 12, 0, 0, 0, time.UTC)
 	rows := buildRows(now, sampleSnapshot(now))
-	all := filterRows(rows, "")
+	all := filterRows(rows, "", 0)
 	if len(all) != len(rows) || all[0].Branch != rows[0].Branch {
 		t.Fatalf("filterRows(all) = %d rows, want the input untouched", len(all))
 	}
-	one := filterRows(rows, "monorepo")
+	one := filterRows(rows, "monorepo", 0)
 	if len(one) != 1 || one[0].Repo != "monorepo" {
 		t.Fatalf("filterRows(%q) = %+v, want only the monorepo row", "monorepo", one)
 	}
-	none := filterRows(rows, "nothing-matches-this")
+	none := filterRows(rows, "nothing-matches-this", 0)
 	if none == nil {
 		t.Fatal("filterRows() returned nil, want an empty slice so callers can range over it")
 	}
@@ -272,4 +272,82 @@ func TestRenderBadgesTagsEachSlotAndSkipsEmptyOnes(t *testing.T) {
 	if got := renderBadges([]badge{{}}); got != "" {
 		t.Fatalf("renderBadges(empty badge) = %q, want the empty string", got)
 	}
+}
+
+// The old dashboard cycled views with Tab: All, Tmux, Worktrees, PRs, Branches.
+// Those are facet tests, and "branches" is facet absence — the branches that
+// exist but are checked out nowhere.
+func TestViewsCycleThroughTheOldModes(t *testing.T) {
+	labels := []string{}
+	for _, v := range views {
+		labels = append(labels, v.Label)
+	}
+	want := []string{"All", "Tmux", "Worktrees", "PRs", "Branches"}
+	if len(labels) != len(want) {
+		t.Fatalf("views = %v, want %v", labels, want)
+	}
+	for i := range want {
+		if labels[i] != want[i] {
+			t.Fatalf("views = %v, want %v", labels, want)
+		}
+	}
+}
+
+func TestNextViewWrapsBothWays(t *testing.T) {
+	if got := nextView(0, 1); got != 1 {
+		t.Fatalf("nextView(0, 1) = %d, want 1", got)
+	}
+	if got := nextView(0, -1); got != len(views)-1 {
+		t.Fatalf("nextView(0, -1) = %d, want %d", got, len(views)-1)
+	}
+	if got := nextView(len(views)-1, 1); got != 0 {
+		t.Fatalf("nextView(last, 1) = %d, want 0", got)
+	}
+}
+
+func TestFilterRowsAppliesTheView(t *testing.T) {
+	withSession := row{Host: "asia", Repo: "monorepo", Branch: "a",
+		WS: workspace.Workspace{Sessions: []workspace.Session{{Name: "s"}}}}
+	bare := row{Host: "asia", Repo: "monorepo", Branch: "b"}
+	rows := []row{withSession, bare}
+	all := filterRows(rows, "", 0)
+	if len(all) != 2 {
+		t.Fatalf("All view = %d rows, want 2", len(all))
+	}
+	tmuxView := 0
+	for i, v := range views {
+		if v.Label == "Tmux" {
+			tmuxView = i
+		}
+	}
+	only := filterRows(rows, "", tmuxView)
+	if len(only) != 1 || only[0].Branch != "a" {
+		t.Fatalf("Tmux view = %+v, want only the row with a session", only)
+	}
+}
+
+// An unlinked session is a session, so it belongs in All and Tmux — but it is not
+// a branch, and the old dashboard never listed it under worktrees or branches.
+func TestFilterRowsKeepsUnlinkedSessionsOutOfBranchViews(t *testing.T) {
+	unlinked := row{Host: "asia", Repo: "(unlinked)", Branch: "stray", Unlinked: true,
+		WS: workspace.Workspace{Sessions: []workspace.Session{{Name: "stray"}}}}
+	for _, label := range []string{"All", "Tmux"} {
+		if got := filterRows([]row{unlinked}, "", viewIndex(label)); len(got) != 1 {
+			t.Fatalf("%s view dropped the unlinked session", label)
+		}
+	}
+	for _, label := range []string{"Worktrees", "PRs", "Branches"} {
+		if got := filterRows([]row{unlinked}, "", viewIndex(label)); len(got) != 0 {
+			t.Fatalf("%s view = %+v, want no unlinked sessions", label, got)
+		}
+	}
+}
+
+func viewIndex(label string) int {
+	for i, v := range views {
+		if v.Label == label {
+			return i
+		}
+	}
+	return 0
 }

@@ -112,3 +112,26 @@ func TestMenuTitleIdentifiesTheWorkspaceFully(t *testing.T) {
 		}
 	}
 }
+
+// The active view has to be visible, or a filtered list looks like a broken one:
+// the old dashboard showed it in the top-left for exactly that reason.
+func TestPromptShowsTheActiveView(t *testing.T) {
+	if got := prompt("", 0); !strings.Contains(got, "All") {
+		t.Fatalf("prompt = %q, want it to name the All view", got)
+	}
+	tmux := viewIndex("Tmux")
+	got := prompt("", tmux)
+	if !strings.Contains(got, "Tmux") {
+		t.Fatalf("prompt = %q, want it to name the Tmux view", got)
+	}
+	if !strings.Contains(got, "tab") {
+		t.Fatalf("prompt = %q, want it to say how to change view", got)
+	}
+}
+
+func TestPromptShowsTheQueryWhileTyping(t *testing.T) {
+	got := prompt("mono", 0)
+	if !strings.Contains(got, "mono") {
+		t.Fatalf("prompt = %q, want the query shown", got)
+	}
+}

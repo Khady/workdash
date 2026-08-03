@@ -9,6 +9,7 @@ package workspace
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -89,4 +90,24 @@ func (w Workspace) Facets() []string {
 		}
 	}
 	return facets
+}
+
+// Matches reports whether a workspace satisfies a set of facet requirements. A
+// "!" prefix negates, so absence is expressible: "!worktree" selects the branches
+// that exist but are checked out nowhere.
+//
+// This is the one place the convention lives. The action language uses it to
+// decide applicability, the TUI to filter the view, and the CLI for --needs;
+// three copies would eventually disagree about what "!" means.
+func Matches(ws Workspace, needs []string) bool {
+	for _, facet := range needs {
+		want := true
+		if strings.HasPrefix(facet, "!") {
+			want, facet = false, strings.TrimPrefix(facet, "!")
+		}
+		if ws.Has(facet) != want {
+			return false
+		}
+	}
+	return true
 }

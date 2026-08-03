@@ -20,11 +20,9 @@ import (
 	"github.com/Khady/workdash/internal/workspace"
 )
 
-// prPolicy separates "old enough to refresh" from "too old to show".
-//
-
 const usage = `usage:
   wd ls [--json]              list workspaces
+  wd ls --needs session       only workspaces with a session (or worktree, pr, !worktree)
   wd actions <selector>       list actions available for a workspace
   wd run <selector> <action>  run an action on a workspace
   wd refresh                  refetch pull requests now
@@ -38,7 +36,60 @@ func main() {
 	}
 }
 
+// parseNeeds pulls --needs out of the argument list, leaving the rest alone. It
+// takes the action language's spelling, "!worktree" included, so the same words
+// mean the same thing in the config, the TUI's views and here.
+func parseNeeds(argv []string) (needs []string, rest []string, err error) {
+	known := map[string]bool{
+		workspace.FacetWorktree: true, workspace.FacetSession: true, workspace.FacetPR: true,
+	}
+	for i := 0; i < len(argv); i++ {
+		if argv[i] != "--needs" {
+			rest = append(rest, argv[i])
+			continue
+		}
+		if i+1 >= len(argv) {
+			return nil, nil, fmt.Errorf("--needs wants a facet: one of worktree, session, pr, optionally prefixed with !")
+		}
+		i++
+		facet := strings.TrimPrefix(argv[i], "!")
+		if !known[facet] {
+			return nil, nil, fmt.Errorf("unknown facet %q: want worktree, session or pr, optionally prefixed with !", argv[i])
+		}
+		needs = append(needs, argv[i])
+	}
+	return needs, rest, nil
+}
+
+// filterWorkspaces applies --needs. Unlinked sessions are sessions, so they
+// survive a session filter and nothing else.
+func filterWorkspaces(snap workspace.Snapshot, needs []string) workspace.Snapshot {
+	if len(needs) == 0 {
+		return snap
+	}
+	out := workspace.Snapshot{}
+	for _, ws := range snap.Workspaces {
+		if workspace.Matches(ws, needs) {
+			out.Workspaces = append(out.Workspaces, ws)
+		}
+	}
+	wantsSession := false
+	for _, facet := range needs {
+		if facet == workspace.FacetSession {
+			wantsSession = true
+		}
+	}
+	if wantsSession && len(needs) == 1 {
+		out.Orphans = snap.Orphans
+	}
+	return out
+}
+
 func run(argv []string) error {
+	needs, argv, err := parseNeeds(argv)
+	if err != nil {
+		return err
+	}
 	if len(argv) == 0 {
 		return fmt.Errorf("%s", usage)
 	}
@@ -53,6 +104,8 @@ func run(argv []string) error {
 	if snapshotFailed(len(snap.Workspaces), warnings) {
 		return fmt.Errorf("no workspaces collected; every source failed (see warnings above)")
 	}
+
+	snap = filterWorkspaces(snap, needs)
 
 	switch argv[0] {
 	case "ls":

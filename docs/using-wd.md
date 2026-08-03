@@ -29,6 +29,11 @@ make install-core
 **`prefix + w`** opens the TUI in a tmux popup: type to filter, `Enter` for the
 action menu, `Ctrl+R` to reload, `?` for help, `q` to quit.
 
+**`Tab`** / **`Shift+Tab`** cycle the view, as the old dashboard did: **All →
+Tmux → Worktrees → PRs → Branches**. Those are facet filters — "Branches" means
+the ones checked out nowhere — and the active view is shown top-left next to the
+filter, so a short list is never mysterious.
+
 **`prefix + W`** opens the fzf picker instead, if you prefer it.
 
 The popup is `wd-pick`, which is three `wd` calls piped through `fzf` — worth
@@ -43,6 +48,9 @@ wd ls --json                             # the same, for scripts
 wd actions asia:monorepo:louis/x         # what can I do on this workspace
 wd run asia:monorepo:louis/x shell       # do it
 wd refresh                               # refetch pull requests now
+wd ls --needs session                    # the same filters as the TUI's Tab
+wd ls --needs worktree --needs pr        # combine them
+wd ls --needs '!worktree'                # branches checked out nowhere
 ```
 
 `wd ls` output is one workspace per line:

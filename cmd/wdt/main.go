@@ -38,7 +38,7 @@ A dashboard over every configured workspace. Keys:
   esc             clear the filter, then quit
   q / ctrl-c      quit`
 
-const footerText = "type to filter  ·  ↑↓ move  ·  enter actions  ·  ^R reload  ·  ? help  ·  q quit"
+const footerText = "type to filter  ·  tab view  ·  ↑↓ move  ·  enter actions  ·  ^R reload  ·  ? help  ·  q quit"
 
 func main() {
 	for _, arg := range os.Args[1:] {
@@ -77,6 +77,8 @@ type app struct {
 	warnings []string
 	message  string
 	query    string
+	// view indexes views: the old dashboard cycled these with Tab.
+	view     int
 	loading  bool
 	loadedAt time.Time
 	// modal names the page currently covering the table, if any. Keys go straight
@@ -160,6 +162,14 @@ func (a *app) handleKey(event *tcell.EventKey) *tcell.EventKey {
 	case tcell.KeyCtrlC:
 		a.tv.Stop()
 		return nil
+	case tcell.KeyTab:
+		a.view = nextView(a.view, 1)
+		a.populate(true)
+		return nil
+	case tcell.KeyBacktab:
+		a.view = nextView(a.view, -1)
+		a.populate(true)
+		return nil
 	case tcell.KeyCtrlR:
 		a.message = ""
 		a.load()
@@ -229,7 +239,7 @@ func (a *app) populate(preserve bool) {
 			previous = rowKey(*selected)
 		}
 	}
-	a.shown = filterRows(a.rows, a.query)
+	a.shown = filterRows(a.rows, a.query, a.view)
 	a.table.Clear()
 	for column, title := range []string{"HOST", "REPO", "BRANCH", "W S P", "PR", "SESSION", "AGE"} {
 		a.table.SetCell(0, column, tview.NewTableCell(title).
@@ -298,11 +308,7 @@ func tagged(text string) *tview.TableCell {
 }
 
 func (a *app) renderChrome() {
-	query := "[" + colorMuted + "]type to filter"
-	if a.query != "" {
-		query = "[" + colorMuted + "]filter [-]" + tview.Escape(a.query) + "[" + colorSession + "]▏"
-	}
-	a.filter.SetText(query)
+	a.filter.SetText(prompt(a.query, a.view))
 	a.status.SetText("[" + colorMuted + "]" + statusLine(len(a.shown), len(a.rows), a.loadedAt, a.loading))
 
 	lines := []string{}
