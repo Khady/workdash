@@ -263,8 +263,10 @@ func TestRemoteAttachAddsNoWindowToTheRemoteSession(t *testing.T) {
 			t.Fatalf("remote command %q created a named session", command)
 		}
 	}
-	if !strings.Contains(strings.Join(remoteCommands(runner), "\n"), "gwt-monorepo-louis-x") {
-		t.Fatalf("remote commands %q, want the existing session viewed", remoteCommands(runner))
+	// Attach makes no ssh calls at all now: the view is created by the command
+	// inside the local window, so the session is named there.
+	if joined := strings.Join(localWindow(t, runner), " "); !strings.Contains(joined, "new-session -t=gwt-monorepo-louis-x") {
+		t.Fatalf("local window = %q, want it to view the existing session", joined)
 	}
 	if !strings.Contains(out, "gwt-monorepo-louis-x") {
 		t.Fatalf("message = %q", out)
