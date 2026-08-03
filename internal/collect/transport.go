@@ -73,6 +73,13 @@ func sshScript(plan Plan) string {
 		}
 		fmt.Fprintf(&script, "%s 2>/dev/null\n", shellquote.Join(section.Argv))
 	}
+	// End deliberately. Without this the script's status is whichever section ran
+	// last, which says nothing about the host: a stopped tmux server made the
+	// final section exit 1 and the caller threw away eleven repos of git facts
+	// that had been collected perfectly well. A genuine ssh failure still shows
+	// up — connection problems exit 255, a missing shell 127 — so only the
+	// meaningless status is suppressed.
+	script.WriteString("exit 0\n")
 	return script.String()
 }
 

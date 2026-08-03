@@ -176,3 +176,22 @@ func indexOfTarget(argv []string, target string) int {
 	}
 	return -1
 }
+
+// The script's exit status is the last section's, which says nothing about the
+// host. A dead tmux server made the final section exit 1, and the whole host —
+// eleven repos of git facts that had been collected fine — was discarded with
+// "ssh: exit status 1". The script must end deliberately.
+func TestSSHScriptEndsSuccessfullyEvenWhenTheLastSectionFails(t *testing.T) {
+	plan := Plan{Sections: []Section{
+		{Key: "good", Argv: []string{"printf", "%s\\n", "collected"}},
+		{Key: "broken", Argv: []string{"false"}},
+	}}
+	cmd := exec.Command("bash", "-c", sshScript(plan))
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("script exited non-zero because its last section failed: %v", err)
+	}
+	if got := splitSections(string(out))["good"]; got != "collected" {
+		t.Fatalf("good section = %q, want the earlier section still collected", got)
+	}
+}
