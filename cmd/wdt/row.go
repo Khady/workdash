@@ -51,9 +51,13 @@ func hostColor(host string) string {
 // absent. A fixed grid is the whole point — "worktree,session" as text makes
 // every row a different width and forces you to read it, while a grid lets a
 // column of dots tell you at a glance which branches have nothing running.
+// facetBadges renders worktree and session presence as fixed slots, so a column
+// of dots shows at a glance which branches have nothing running. There is no PR
+// slot: the PR column already carries the number, and a badge saying "there is a
+// PR" next to a column saying "#37654" is the same fact twice.
 func facetBadges(ws workspace.Workspace) []badge {
 	absent := badge{Text: "·", Color: colorAbsent}
-	badges := []badge{absent, absent, absent}
+	badges := []badge{absent, absent}
 	if ws.Worktree != nil {
 		// The repo's main checkout is worth telling apart from a gwt worktree:
 		// it is the one you must not delete, and the old TUI underlined it for
@@ -66,9 +70,6 @@ func facetBadges(ws workspace.Workspace) []badge {
 	}
 	if len(ws.Sessions) > 0 {
 		badges[1] = badge{Text: "S", Color: colorSession}
-	}
-	if ws.PR != nil {
-		badges[2] = badge{Text: "P", Color: colorPR}
 	}
 	return badges
 }

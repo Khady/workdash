@@ -24,7 +24,7 @@ func TestHostColorMatchesTheLegacyDashboardPalette(t *testing.T) {
 	}
 }
 
-func TestFacetBadgesAlwaysReportsThreeSlots(t *testing.T) {
+func TestFacetBadgesAlwaysReportsBothSlots(t *testing.T) {
 	dot := badge{Text: "·", Color: colorAbsent}
 	tests := []struct {
 		name string
@@ -34,31 +34,33 @@ func TestFacetBadgesAlwaysReportsThreeSlots(t *testing.T) {
 		{
 			name: "a bare branch has no facet at all",
 			ws:   workspace.Workspace{},
-			want: []badge{dot, dot, dot},
+			want: []badge{dot, dot},
 		},
 		{
 			name: "a linked worktree",
 			ws:   workspace.Workspace{Worktree: &workspace.Worktree{Path: "/w"}},
-			want: []badge{{Text: "W", Color: colorWorktree}, dot, dot},
+			want: []badge{{Text: "W", Color: colorWorktree}, dot},
 		},
 		{
 			name: "the repo's main checkout is distinguished from a gwt worktree",
 			ws:   workspace.Workspace{Worktree: &workspace.Worktree{Path: "/w", IsMain: true}},
-			want: []badge{{Text: "M", Color: colorWorktree}, dot, dot},
+			want: []badge{{Text: "M", Color: colorWorktree}, dot},
 		},
 		{
 			name: "a session without a worktree still occupies its own slot",
 			ws:   workspace.Workspace{Sessions: []workspace.Session{{Name: "solo"}}},
-			want: []badge{dot, {Text: "S", Color: colorSession}, dot},
+			want: []badge{dot, {Text: "S", Color: colorSession}},
 		},
 		{
-			name: "all three",
+			// A PR gets no slot: the PR column carries its number, and a badge
+			// saying "there is a PR" beside it is the same fact twice.
+			name: "worktree and session, with a PR that the number column shows",
 			ws: workspace.Workspace{
 				Worktree: &workspace.Worktree{Path: "/w"},
 				Sessions: []workspace.Session{{Name: "solo"}},
 				PR:       &workspace.PR{Number: 7, State: "OPEN"},
 			},
-			want: []badge{{Text: "W", Color: colorWorktree}, {Text: "S", Color: colorSession}, {Text: "P", Color: colorPR}},
+			want: []badge{{Text: "W", Color: colorWorktree}, {Text: "S", Color: colorSession}},
 		},
 	}
 	for _, test := range tests {
@@ -181,8 +183,8 @@ func TestBuildRowsPreservesSnapshotOrderAndFillsColumns(t *testing.T) {
 	if first.Session != "gwt-monorepo-louis-ocaml  2 win" {
 		t.Errorf("row 0 session = %q, want the session summary", first.Session)
 	}
-	if len(first.Facets) != 3 || first.Facets[0].Text != "W" {
-		t.Errorf("row 0 facets = %+v, want three slots starting with the worktree", first.Facets)
+	if len(first.Facets) != 2 || first.Facets[0].Text != "W" {
+		t.Errorf("row 0 facets = %+v, want both slots, starting with the worktree", first.Facets)
 	}
 	if first.Unlinked {
 		t.Error("row 0 is a real workspace, not an unlinked session")

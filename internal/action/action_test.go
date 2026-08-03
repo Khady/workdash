@@ -222,3 +222,52 @@ func TestResolveLeavesSessionEmptyWhenThereIsNone(t *testing.T) {
 		t.Fatalf("session = %q, want empty", got[0].Session)
 	}
 }
+
+// hosts names machines, which is too specific: what a GUI editor actually needs
+// is "the workspace is on this machine", and what vim-on-the-devbox needs is
+// "the workspace is somewhere else". Naming asia in both makes adding a second
+// remote host an edit of every action.
+func TestResolveHonoursLocalScope(t *testing.T) {
+	defs := []wdconf.Action{{ID: "code", Scope: wdconf.ScopeLocal,
+		Needs: []string{workspace.FacetWorktree}, Where: "background", Argv: []string{"code", "{path}"}}}
+	local := ws()
+	if got := Resolve(local, defs); len(got) != 1 {
+		t.Fatalf("resolved on local = %+v, want the local-scoped action", got)
+	}
+	remote := ws()
+	remote.ID.Host = "asia"
+	if got := Resolve(remote, defs); len(got) != 0 {
+		t.Fatalf("resolved on asia = %+v, want none", got)
+	}
+}
+
+func TestResolveHonoursRemoteScopeForAnyHost(t *testing.T) {
+	defs := []wdconf.Action{{ID: "vim-remote", Scope: wdconf.ScopeRemote,
+		Needs: []string{workspace.FacetWorktree}, Where: "pane", Argv: []string{"vim", "{path}"}}}
+	for _, host := range []string{"asia", "eu", "us"} {
+		remote := ws()
+		remote.ID.Host = host
+		if got := Resolve(remote, defs); len(got) != 1 {
+			t.Fatalf("resolved on %q = %+v, want the remote-scoped action on every remote host", host, got)
+		}
+	}
+	if got := Resolve(ws(), defs); len(got) != 0 {
+		t.Fatalf("resolved on local = %+v, want none", got)
+	}
+}
+
+// hosts stays for the genuinely machine-specific case, and composes with scope.
+func TestResolveAppliesScopeAndHostsTogether(t *testing.T) {
+	defs := []wdconf.Action{{ID: "only-asia", Scope: wdconf.ScopeRemote, Hosts: []string{"asia"},
+		Needs: []string{workspace.FacetWorktree}, Where: "pane", Argv: []string{"true"}}}
+	asia := ws()
+	asia.ID.Host = "asia"
+	if got := Resolve(asia, defs); len(got) != 1 {
+		t.Fatalf("resolved on asia = %+v, want 1", got)
+	}
+	eu := ws()
+	eu.ID.Host = "eu"
+	if got := Resolve(eu, defs); len(got) != 0 {
+		t.Fatalf("resolved on eu = %+v, want none: hosts still narrows further", got)
+	}
+}

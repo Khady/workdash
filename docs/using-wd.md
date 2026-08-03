@@ -62,7 +62,9 @@ local  gmi-status main                  worktree
 asia   (unlinked) claude rc monorepo     session
 ```
 
-The columns are host, repo, branch, facets, and session detail. **Facets are the
+The columns are host, repo, branch, the `W S` facet grid, PR number, session
+detail and age. There is no `P` slot in the grid: the PR column already shows the
+number, and a badge saying "there is a PR" beside it is the same fact twice. **Facets are the
 point**: they say what currently exists for that branch, and the available
 actions follow from them. A branch with no worktree gets "create worktree"; one
 with a session gets "attach"; one with a PR gets "open PR". `(unlinked)` is a tmux
@@ -131,7 +133,8 @@ the same `F1`–`F10` switching, as local ones.
 id = "test"
 label = "run tests"
 needs = ["worktree"]        # facets required; "!worktree" means it must be absent
-hosts = ["asia"]            # optional; omit for every host
+scope = "remote"            # optional; local | remote, omitted for both
+hosts = ["asia"]            # optional; narrower still, named machines
 where = "pane"              # pane | capture | attach | background
 run_on = "local"            # optional; run here even for a remote workspace
 argv = ["dune", "test"]     # a list, so nothing needs quoting
@@ -146,10 +149,14 @@ unavailable there rather than producing a broken command.
 
 Two settings that exist for real reasons:
 
-- **`hosts`** keeps a GUI editor off a remote workspace, where it would open a
-  path that does not exist locally, and keeps a command installed on only one
-  machine from being offered on the other. `gwt`, `gwt-delete` and `agents` are
-  scoped to `asia` because they are not installed here.
+- **`scope`** is `local` or `remote`, or omitted for both. It keeps a GUI editor
+  off a remote workspace, where it would open a path that does not exist here, and
+  keeps `gwt`, `gwt-delete` and `agents` — which live on the devboxes, not this
+  laptop — off local ones. It is deliberately about locality rather than a named
+  machine, so adding a second remote host needs no edit.
+- **`hosts`** narrows further, to named machines, for the genuinely
+  machine-specific case. Prefer `scope`; reach for `hosts` only when one host
+  really does differ from the others.
 - **`attach_argv`** on an action overrides how a remote pane is reached. The host
   default is `["ssh", "-A", "-t"]` so agent forwarding and the `LocalForward`
   entries in `~/.ssh/config` keep working. mosh is opted into per action — it

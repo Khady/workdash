@@ -52,6 +52,9 @@ func Resolve(ws workspace.Workspace, defs []wdconf.Action) []Resolved {
 		if !workspace.Matches(ws, def.Needs) {
 			continue
 		}
+		if !inScope(ws.ID.Host, def.Scope) {
+			continue
+		}
 		if !onHost(ws.ID.Host, def.Hosts) {
 			continue
 		}
@@ -97,6 +100,18 @@ func firstSession(ws workspace.Workspace) string {
 		return ""
 	}
 	return ws.Sessions[0].Name
+}
+
+// inScope reports whether a workspace's host matches an action's scope. Empty
+// scope means both, so scoping stays opt-in.
+func inScope(host, scope string) bool {
+	switch scope {
+	case wdconf.ScopeLocal:
+		return host == wdconf.LocalHost
+	case wdconf.ScopeRemote:
+		return host != wdconf.LocalHost
+	}
+	return true
 }
 
 // onHost reports whether an action applies to a host. An empty list means every

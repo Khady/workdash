@@ -241,7 +241,7 @@ func (a *app) populate(preserve bool) {
 	}
 	a.shown = filterRows(a.rows, a.query, a.view)
 	a.table.Clear()
-	for column, title := range []string{"HOST", "REPO", "BRANCH", "W S P", "PR", "SESSION", "AGE"} {
+	for column, title := range []string{"HOST", "REPO", "BRANCH", "W S", "PR", "SESSION", "AGE"} {
 		a.table.SetCell(0, column, tview.NewTableCell(title).
 			SetTextColor(tcell.GetColor(colorMuted)).
 			SetSelectable(false))

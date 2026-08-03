@@ -21,6 +21,14 @@ const (
 	// WhereBackground starts a command detached and does not wait for it, which is
 	// what GUI programs need.
 	WhereBackground = "background"
+	// ScopeLocal and ScopeRemote say where a workspace has to live for an action to
+	// apply. This is the generic form of what naming hosts was standing in for: a
+	// GUI editor needs "the workspace is on this machine", and an editor installed
+	// on the devboxes needs "the workspace is somewhere else" — neither is about a
+	// particular machine, and spelling one out means editing every action the day a
+	// second remote host appears.
+	ScopeLocal  = "local"
+	ScopeRemote = "remote"
 	// RunOnLocal runs the command on this machine even when the workspace lives on
 	// another one. Opening a pull request in a browser is about the workspace but
 	// belongs on the laptop, which `hosts` cannot express: `hosts` says which
@@ -41,7 +49,10 @@ type Action struct {
 	ID    string   `toml:"id"`
 	Label string   `toml:"label"`
 	Needs []string `toml:"needs"`
-	// Hosts limits an action to named hosts. Empty means every host. A GUI editor
+	// Scope limits an action to local or remote workspaces. Empty means both.
+	Scope string `toml:"scope"`
+	// Hosts limits an action to named hosts, narrowing further than Scope for the
+	// genuinely machine-specific case. Prefer Scope. Empty means every host. A GUI editor
 	// belongs on "local" only, because it would otherwise be offered for a remote
 	// workspace and open a path that does not exist on this machine.
 	Hosts []string `toml:"hosts"`
@@ -165,6 +176,9 @@ func Load(path string) (Config, error) {
 		}
 		if action.Where == WhereAttach && len(action.Argv) > 0 {
 			return Config{}, fmt.Errorf("action %q: `attach` takes no `argv`: it connects to an existing session", action.ID)
+		}
+		if action.Scope != "" && action.Scope != ScopeLocal && action.Scope != ScopeRemote {
+			return Config{}, fmt.Errorf("action %q: `scope` must be %q, %q or omitted", action.ID, ScopeLocal, ScopeRemote)
 		}
 		if action.RunOn != "" && action.RunOn != RunOnLocal {
 			return Config{}, fmt.Errorf("action %q: `run_on` must be %q or omitted", action.ID, RunOnLocal)
