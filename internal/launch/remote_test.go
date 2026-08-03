@@ -489,6 +489,68 @@ func TestRemoteAttachNamesItsViewAfterTheWindow(t *testing.T) {
 	}
 }
 
+// The grouped view needs the workspace's directory of its own.
+//
+// A session's working directory is what tmux gives a window created without -c,
+// which is every window the host's own bindings create — `prefix c`, the launch
+// menu. A view created by `ssh host tmux new-session -t=…` is created by a client
+// with no session, and tmux then takes the client's cwd: the ssh command's, which
+// is the remote home directory. So `prefix c` inside a view of a worktree session
+// opened in ~ instead of the worktree. Verified against asia by sending a real
+// prefix+c to both forms: without -c the new window landed in /home/me, with it in
+// the worktree.
+func TestRemotePaneGivesTheViewTheWorkspaceDirectory(t *testing.T) {
+	runner := &recordRunner{sessions: map[string]bool{"gwt-x": true}, out: "@42"}
+	resolved := remoteResolved()
+	resolved.Session = "gwt-x"
+	if _, err := remoteFixture(runner, true).Pane(resolved); err != nil {
+		t.Fatalf("Pane() error = %v", err)
+	}
+	view := findRemoteCommand(t, runner, "new-session -d -A")
+	if !strings.Contains(view, "-c /srv/wt/topic") {
+		t.Fatalf("view creation = %q, want -c on the workspace directory", view)
+	}
+}
+
+func TestRemoteAttachGivesTheViewTheWorkspaceDirectory(t *testing.T) {
+	runner := &recordRunner{sessions: map[string]bool{"gwt-x": true}, out: "@7"}
+	resolved := remoteResolved()
+	resolved.Session = "gwt-x"
+	if _, err := remoteFixture(runner, true).Attach(resolved); err != nil {
+		t.Fatalf("Attach() error = %v", err)
+	}
+	view := findRemoteCommand(t, runner, "new-session -d -A")
+	if !strings.Contains(view, "-c /srv/wt/topic") {
+		t.Fatalf("view creation = %q, want -c on the workspace directory", view)
+	}
+}
+
+// With no window to focus, the view is created by the attach itself — the form
+// that produces the "<base>-1" session names. It needs the directory just as much,
+// since it is the session the user then presses keys in.
+func TestRemoteViewCreatedWhileAttachingCarriesTheDirectory(t *testing.T) {
+	argv := remoteFixture(&recordRunner{}, true).attachArgv(remoteResolved(), "topic", "")
+	joined := strings.Join(argv, " ")
+	if !strings.Contains(joined, "new-session -t=topic") {
+		t.Fatalf("attach argv = %q, want the view created while attaching", argv)
+	}
+	if !strings.Contains(joined, "-c /srv/wt/topic") {
+		t.Fatalf("attach argv = %q, want -c on the workspace directory", argv)
+	}
+}
+
+// findRemoteCommand returns the remote command containing want.
+func findRemoteCommand(t *testing.T, runner *recordRunner, want string) string {
+	t.Helper()
+	for _, command := range remoteCommands(runner) {
+		if strings.Contains(command, want) {
+			return command
+		}
+	}
+	t.Fatalf("no remote command containing %q in %q", want, remoteCommands(runner))
+	return ""
+}
+
 // The message has to say what happened, not what was hoped for. With no client
 // anywhere the local step creates a detached session, and reporting "attached
 // locally" sent you looking for a window that was never opened.

@@ -51,6 +51,11 @@ TUI columns and `wd ls --json`.
   window collector.
 - **`{session}` picks the first session** when a workspace has several. Choosing
   belongs in a frontend that can ask.
+- **Views still get a "<base>-1" name on a fresh session.** `Pane` creating a
+  session does not ask for the new window's id, so there is no window to focus and
+  the view is made by the attach itself — the one path that lets tmux auto-name it.
+  Adding `-P -F '#{window_id}'` to that create would route it through
+  `prepareView` like every other view, and name it `<base>~@id`.
 - **The local tmux server inherits whoever created it.** Remote commands now go
   through a login shell so the server workdash creates on a host has a usable
   PATH, and a tmux server keeps its birth PATH for life. Locally the same hole

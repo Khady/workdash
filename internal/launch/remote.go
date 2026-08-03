@@ -89,11 +89,13 @@ func (r Remote) Attach(resolved action.Resolved) (string, error) {
 // it reap itself when the last client detaches. Done over our own ssh call, where
 // the quoting is ours to control, rather than as a command chain the transport
 // would mangle.
-func (r Remote) prepareView(session, focus string) error {
+func (r Remote) prepareView(session, focus, cwd string) error {
 	view := viewName(session, focus)
 	// -A so clicking the same action twice reuses one view instead of piling up.
-	if _, err := r.ssh([]string{"tmux", "new-session", "-d", "-A",
-		"-t" + exactTarget(session), "-s", view}); err != nil {
+	create := []string{"tmux", "new-session", "-d", "-A",
+		"-t" + exactTarget(session), "-s", view}
+	create = append(create, viewDir(cwd)...)
+	if _, err := r.ssh(create); err != nil {
 		return err
 	}
 	// No destroy-unattached: setting it on a view that has no client yet destroys
@@ -124,7 +126,7 @@ func (r Remote) currentWindow(session string) (string, error) {
 // an independent current-window, which is what tmux provides them for.
 func (r Remote) view(resolved action.Resolved, session, focus string) (string, error) {
 	if focus != "" {
-		if err := r.prepareView(session, focus); err != nil {
+		if err := r.prepareView(session, focus, resolved.Cwd); err != nil {
 			return "", err
 		}
 	}
@@ -195,7 +197,8 @@ func (r Remote) attachArgv(resolved action.Resolved, session, focus string) []st
 	if focus == "" {
 		// Nothing specific to show: new-session -t creates the grouped view and
 		// attaches in one step, so a failed attach leaves nothing behind.
-		return append(reach, "tmux", "new-session", "-t"+exactTarget(session))
+		reach = append(reach, "tmux", "new-session", "-t"+exactTarget(session))
+		return append(reach, viewDir(resolved.Cwd)...)
 	}
 	// The view already exists and is pointed at the right window, so the
 	// interactive command is a plain attach.
@@ -207,6 +210,26 @@ func (r Remote) attachArgv(resolved action.Resolved, session, focus string) []st
 	// execvp's the argv, where ";" must be its own element. Preparing the view over
 	// our own ssh call sidesteps the disagreement entirely.
 	return append(reach, "tmux", "attach", "-t"+exactTarget(viewName(session, focus)))
+}
+
+// viewDir gives the view session the workspace's directory, which is what tmux
+// hands to every window created without one — `prefix c`, a launch menu, anything
+// bound on the host.
+//
+// A session's working directory comes from tmux's server_client_get_cwd: the
+// creating client's cwd when that client has no session of its own, and only then
+// the session's. Our views are created by exactly such a client — `ssh host tmux
+// new-session -t=…` — so without this they inherit the ssh command's cwd, the
+// remote home directory. Opening a shell from inside a view of a worktree session
+// then started in ~, which is not where any of the work is.
+//
+// An empty cwd means the workspace has no worktree, and tmux's own default is
+// better than a guess.
+func viewDir(cwd string) []string {
+	if cwd == "" {
+		return nil
+	}
+	return []string{"-c", cwd}
 }
 
 // viewName names the grouped view after the window it is showing, so clicking the
