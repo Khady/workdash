@@ -22,15 +22,18 @@ where = "pane"
 argv = ["claude"]
 
 [[actions]]
-id = "status"
-label = "git status"
+# `capture` runs the command and shows its output. It suits one-shot operations
+# whose result you read once — not state you should simply be able to see, which
+# belongs in a facet.
+id = "gwt-delete"
+label = "delete worktree"
 needs = ["worktree"]
+scope = "remote"
 where = "capture"
-argv = ["git", "status", "--short", "--branch"]
+shell = true
+argv = ["gwt-delete", "{branch}"]
+cwd = "{repo}"
 
-# shell = true runs via `bash -ic`, so shell functions from your rc resolve.
-# workdash calls gwt rather than reimplementing it: a worktree created here and
-# one created by typing `gwt NAME` yourself are the same thing.
 [[actions]]
 id = "gwt"
 label = "create worktree"
@@ -40,9 +43,9 @@ shell = true
 argv = ["gwt", "{branch}"]
 cwd = "{repo}"
 
+# `attach` connects to the session that already exists and creates nothing. It
+# takes no argv and implies needs = ["session"].
 [[actions]]
 id = "attach"
 label = "attach session"
-needs = ["session"]
-where = "capture"
-argv = ["tmux", "switch-client", "-t", "{session}"]
+where = "attach"
