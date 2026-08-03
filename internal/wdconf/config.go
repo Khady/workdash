@@ -103,10 +103,13 @@ type Config struct {
 	// with the caller waiting. PRRefreshAfter is the soft one: past it the cache
 	// still renders and the refetch happens in the background. Both are parsed
 	// from the raw strings below so callers get a duration, not a string.
-	PRCacheTTL        time.Duration `toml:"-"`
-	PRRefreshAfter    time.Duration `toml:"-"`
-	RawPRCacheTTL     string        `toml:"pr_cache_ttl"`
-	RawPRRefreshAfter string        `toml:"pr_refresh_after"`
+	PRCacheTTL     time.Duration `toml:"-"`
+	PRRefreshAfter time.Duration `toml:"-"`
+	// Terminal spawns a terminal emulator when there is no tmux client to show a
+	// window in — the case a browser popup hits. The command to run is appended.
+	Terminal          []string `toml:"terminal"`
+	RawPRCacheTTL     string   `toml:"pr_cache_ttl"`
+	RawPRRefreshAfter string   `toml:"pr_refresh_after"`
 }
 
 // GHAccounts lists the distinct `gh_account` values configured anywhere, local
@@ -159,6 +162,11 @@ func Load(path string) (Config, error) {
 	}
 	if err := resolvePRCache(&cfg); err != nil {
 		return Config{}, err
+	}
+	for i, word := range cfg.Terminal {
+		if strings.TrimSpace(word) == "" {
+			return Config{}, fmt.Errorf("`terminal` element %d is empty", i)
+		}
 	}
 	if err := normalizeRepos(cfg.Repos, "", true); err != nil {
 		return Config{}, err

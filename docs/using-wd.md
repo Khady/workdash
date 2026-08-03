@@ -129,7 +129,17 @@ survives losing the connection — then attaches from a local tmux window named
 `asia/branch`. That is deliberate: remote agents land in the same window list, and
 the same `F1`–`F10` switching, as local ones.
 
-`wd` never spawns a terminal emulator and never hands a shell back to its caller.
+`wd` never hands a shell back to its caller. It spawns a terminal emulator in
+exactly one case — no tmux client attached anywhere, which is what the Firefox
+popup hits — because a detached session is invisible and "attach with `tmux attach
+-t …`" is text you cannot act on from a browser:
+
+```toml
+terminal = ["kitty", "--single-instance", "-e"]   # the command to run is appended
+```
+
+It must be a **top-level** key, above any `[[repos]]` or `[[hosts]]` table: a bare
+key after a table header belongs to that table, where it is silently ignored.
 
 ## Adding an action
 

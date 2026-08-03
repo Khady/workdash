@@ -21,7 +21,7 @@ import (
 // directly; a remote one creates the window over ssh and attaches to it from a
 // local tmux window, so remote work lands in the same window list as local work.
 func ExecutorFor(cfg wdconf.Config, host string) (launch.Executor, error) {
-	local := launch.Tmux{Runner: collect.LocalRunner{}, InsideTmux: os.Getenv("TMUX") != ""}
+	local := launch.Tmux{Runner: collect.LocalRunner{}, InsideTmux: os.Getenv("TMUX") != "", Terminal: cfg.Terminal}
 	if host == wdconf.LocalHost {
 		return local, nil
 	}

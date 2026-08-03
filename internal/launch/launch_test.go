@@ -401,3 +401,41 @@ func TestAttachOutsideTmuxSwitchesTheAttachedClient(t *testing.T) {
 	wantArgv(t, runner.argv(len(runner.calls)-1),
 		[]string{"tmux", "switch-client", "-c", "/dev/pts/8", "-t=gwt-x"})
 }
+
+// With no tmux client anywhere, a detached session is invisible — and from a
+// browser popup the printed "attach with tmux attach -t …" cannot be acted on.
+// A configured terminal is the one case where workdash spawns one.
+func TestPaneWithNoClientOpensTheConfiguredTerminal(t *testing.T) {
+	runner := &recordRunner{}
+	spawned := [][]string{}
+	tmux := Tmux{Runner: runner, InsideTmux: false,
+		Terminal: []string{"kitty", "--single-instance", "-e"},
+		Detach: func(cwd string, argv []string) error {
+			spawned = append(spawned, argv)
+			return nil
+		}}
+	out, err := tmux.Pane(action.Resolved{ID: "shell", Name: "topic", Argv: []string{"bash"}, Cwd: "/wt"})
+	if err != nil {
+		t.Fatalf("Pane() error = %v", err)
+	}
+	if len(spawned) != 1 {
+		t.Fatalf("spawned = %v, want one terminal", spawned)
+	}
+	wantArgv(t, spawned[0], []string{"kitty", "--single-instance", "-e", "tmux", "attach", "-t=topic"})
+	if !strings.Contains(out, "terminal") {
+		t.Fatalf("message = %q, want it to say a terminal was opened", out)
+	}
+}
+
+// Without one configured, the behaviour is unchanged: say where the work is.
+func TestPaneWithNoClientAndNoTerminalStillReportsTheSession(t *testing.T) {
+	runner := &recordRunner{}
+	tmux := Tmux{Runner: runner, InsideTmux: false}
+	out, err := tmux.Pane(action.Resolved{ID: "shell", Name: "topic", Argv: []string{"bash"}, Cwd: "/wt"})
+	if err != nil {
+		t.Fatalf("Pane() error = %v", err)
+	}
+	if !strings.Contains(out, "tmux attach -t topic") {
+		t.Fatalf("message = %q, want the attach hint", out)
+	}
+}

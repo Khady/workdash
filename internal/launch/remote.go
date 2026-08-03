@@ -2,6 +2,7 @@ package launch
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/Khady/workdash/internal/action"
 	"github.com/Khady/workdash/internal/shellquote"
@@ -43,16 +44,24 @@ func (r Remote) Pane(resolved action.Resolved) (string, error) {
 		// current. Passing a name would pin it and disable automatic-rename, and
 		// the branch is already the session's name — repeating it on every window
 		// says nothing.
-		create = []string{"tmux", "new-window", "-t" + exactTarget(name) + ":", "-c", resolved.Cwd, "--"}
+		// -P -F prints the new window's id: a grouped view starts on the session's
+		// first window, so the view has to be pointed at this one explicitly.
+		create = []string{"tmux", "new-window", "-t" + exactTarget(name) + ":",
+			"-P", "-F", "#{window_id}", "-c", resolved.Cwd, "--"}
 		verb = "opened a window in remote session"
 	}
-	if _, err := r.ssh(append(create, argv...)); err != nil {
+	created, err := r.ssh(append(create, argv...))
+	if err != nil {
 		return "", err
 	}
-	if _, err := r.view(resolved, name); err != nil {
+	// The local step's own report, not an assumption about it: with no tmux client
+	// anywhere it creates a detached session, and claiming "attached locally" sent
+	// you looking for a window that was never opened.
+	local, err := r.view(resolved, name, strings.TrimSpace(created))
+	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s %q on %s and attached locally", verb, name, resolved.Host), nil
+	return fmt.Sprintf("%s %q on %s; %s", verb, name, resolved.Host, local), nil
 }
 
 // Attach opens a local window connected to an existing remote session. Nothing is
@@ -61,7 +70,49 @@ func (r Remote) Attach(resolved action.Resolved) (string, error) {
 	if resolved.Session == "" {
 		return "", fmt.Errorf("nothing to attach to: %s has no session on %s", resolved.Name, resolved.Host)
 	}
-	return r.view(resolved, resolved.Session)
+	// Attach has no window of its own, so it shows whichever the session is on.
+	// Asking lets the view be named after it and clean itself up, like every other
+	// view — the unnamed form left tmux to call it "<base>-1" and never reaped it.
+	focus, err := r.currentWindow(resolved.Session)
+	if err != nil {
+		return "", err
+	}
+	shown, err := r.view(resolved, resolved.Session, focus)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("viewing session %q on %s over %s; %s",
+		resolved.Session, resolved.Host, r.transportName(resolved), shown), nil
+}
+
+// prepareView creates the grouped view, points it at the window to show, and makes
+// it reap itself when the last client detaches. Done over our own ssh call, where
+// the quoting is ours to control, rather than as a command chain the transport
+// would mangle.
+func (r Remote) prepareView(session, focus string) error {
+	view := viewName(session, focus)
+	// -A so clicking the same action twice reuses one view instead of piling up.
+	if _, err := r.ssh([]string{"tmux", "new-session", "-d", "-A",
+		"-t" + exactTarget(session), "-s", view}); err != nil {
+		return err
+	}
+	// No destroy-unattached: setting it on a view that has no client yet destroys
+	// it on the spot, and the select-window below then cannot find it. It could only
+	// be set from inside the attached client, which a plain attach cannot do — so
+	// views persist after you detach. -A above bounds that: one view per window
+	// viewed, reused on the next click rather than piling up.
+	_, err := r.ssh([]string{"tmux", "select-window", "-t", view + ":" + focus})
+	return err
+}
+
+// currentWindow reads which window a session is on.
+func (r Remote) currentWindow(session string) (string, error) {
+	out, err := r.ssh([]string{"tmux", "display-message", "-p",
+		"-t" + exactTarget(session), "#{window_id}"})
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
 }
 
 // view opens a local window showing an existing remote session.
@@ -71,21 +122,26 @@ func (r Remote) Attach(resolved action.Resolved) (string, error) {
 // one along — open an editor and then a shell on the same branch and both local
 // windows show the same remote window. A grouped session shares the windows with
 // an independent current-window, which is what tmux provides them for.
-func (r Remote) view(resolved action.Resolved, session string) (string, error) {
+func (r Remote) view(resolved action.Resolved, session, focus string) (string, error) {
+	if focus != "" {
+		if err := r.prepareView(session, focus); err != nil {
+			return "", err
+		}
+	}
 	local := action.Resolved{
 		ID:   resolved.ID,
 		Name: r.windowName(resolved),
-		Argv: r.attachArgv(resolved, session),
+		Argv: r.attachArgv(resolved, session, focus),
 	}
-	if _, err := r.Local.pane(local, map[string]string{
+	shown, err := r.Local.pane(local, map[string]string{
 		"@wd_host":      resolved.Host,
 		"@wd_session":   session,
 		"@wd_transport": r.transportName(resolved),
-	}); err != nil {
+	})
+	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("attached to session %q on %s over %s",
-		session, resolved.Host, r.transportName(resolved)), nil
+	return shown, nil
 }
 
 // windowName says which host and branch the window shows, and names the transport
@@ -129,16 +185,35 @@ func (r Remote) transportName(resolved action.Resolved) string {
 // using it needs a "--" before the target — hence attach_argv ending in "--".
 // Both failures are invisible without looking: tmux closes a window whose command
 // dies, so a broken attach looks like nothing happening.
-func (r Remote) attachArgv(resolved action.Resolved, session string) []string {
+func (r Remote) attachArgv(resolved action.Resolved, session, focus string) []string {
 	transport := r.AttachArgv
 	if len(resolved.Attach) > 0 {
 		transport = resolved.Attach
 	}
-	// new-session -t creates the grouped view AND attaches in one step, so nothing
-	// is left behind when the attach fails — a pre-created view session would
-	// linger, since destroy-unattached only fires when a client detaches.
-	return append(append(append([]string{}, transport...), r.Target),
-		"tmux", "new-session", "-t"+exactTarget(session))
+	reach := append(append([]string{}, transport...), r.Target)
+
+	if focus == "" {
+		// Nothing specific to show: new-session -t creates the grouped view and
+		// attaches in one step, so a failed attach leaves nothing behind.
+		return append(reach, "tmux", "new-session", "-t"+exactTarget(session))
+	}
+	// The view already exists and is pointed at the right window, so the
+	// interactive command is a plain attach.
+	//
+	// It has to be plain. A tmux command chain cannot travel over both transports:
+	// ssh joins its arguments and lets the remote shell re-parse them, so ";" is a
+	// *shell* separator there and tmux never sees it — the rest of the chain runs
+	// as shell commands and fails with "set-option: command not found". mosh
+	// execvp's the argv, where ";" must be its own element. Preparing the view over
+	// our own ssh call sidesteps the disagreement entirely.
+	return append(reach, "tmux", "attach", "-t"+exactTarget(viewName(session, focus)))
+}
+
+// viewName names the grouped view after the window it is showing, so clicking the
+// same action twice reuses one view rather than piling them up. tmux forbids "."
+// and ":" in a session name; a window id like "@42" is otherwise fine.
+func viewName(session, focus string) string {
+	return session + "~" + strings.NewReplacer(".", "-", ":", "-").Replace(focus)
 }
 
 // Background is a local-desktop idea: the programs that need it are GUI apps on

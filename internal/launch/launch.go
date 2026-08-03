@@ -46,6 +46,11 @@ type Executor interface {
 type Tmux struct {
 	Runner     Runner
 	InsideTmux bool
+	// Terminal spawns a terminal emulator, with the command to run appended. It is
+	// used in exactly one case: there is no tmux client anywhere to show a window
+	// in, so a detached session would be invisible and the printed "attach with…"
+	// hint unusable — which is what a browser popup gets. Empty means do without.
+	Terminal []string
 	// Detach starts a command without waiting for it. Injected so the background
 	// verb is testable without spawning real processes; nil means the real one.
 	Detach func(cwd string, argv []string) error
@@ -153,7 +158,7 @@ func (t Tmux) pane(resolved action.Resolved, options map[string]string) (string,
 		if _, err := t.Runner.Run("", call); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("created detached session %q; attach with `tmux attach -t %s`", name, name), nil
+		return t.show(name)
 	}
 
 	window := []string{"tmux", "new-window"}
@@ -167,9 +172,9 @@ func (t Tmux) pane(resolved action.Resolved, options map[string]string) (string,
 	}
 	t.stamp(strings.TrimSpace(id), options)
 
-	where := "here"
-	if target != "" {
-		where = fmt.Sprintf("session %q", target)
+	where := ""
+	if target != "" && (!hasViewer || target != viewer.Session) {
+		where = fmt.Sprintf(" in session %q", target)
 	}
 	// A window in a session the client is not viewing is still invisible, so move
 	// the client to it.
@@ -178,7 +183,27 @@ func (t Tmux) pane(resolved action.Resolved, options map[string]string) (string,
 			return "", err
 		}
 	}
-	return fmt.Sprintf("opened tmux window %q in %s", name, where), nil
+	return fmt.Sprintf("opened tmux window %q%s", name, where), nil
+}
+
+// show makes a session visible when there is no client to put it in front of. A
+// configured terminal is opened on it; without one, all that can be done is say
+// where the work went.
+func (t Tmux) show(session string) (string, error) {
+	if len(t.Terminal) == 0 {
+		return fmt.Sprintf("created detached session %q; attach with `tmux attach -t %s`", session, session), nil
+	}
+	detach := t.Detach
+	if detach == nil {
+		detach = detachProcess
+	}
+	argv := append(append([]string{}, t.Terminal...), "tmux", "attach", "-t"+exactTarget(session))
+	// No working directory: the session already has one, and for a remote workspace
+	// the path exists only on the other machine.
+	if err := detach("", argv); err != nil {
+		return "", fmt.Errorf("created session %q but could not open a terminal on it: %w", session, err)
+	}
+	return fmt.Sprintf("opened a terminal on session %q", session), nil
 }
 
 // stamp records what a window is, best effort: failing to label a window is not
@@ -237,7 +262,11 @@ func (t Tmux) hasSession(name string) bool {
 	return err == nil
 }
 
-// exactTarget builds a tmux target that only matches this session. Without the
+// exactTarget builds a tmux target that only matches this session.
+//
+// Not every tmux command accepts it: set-option resolves -t as a pane target and
+// tmux 3.5a rejects "=name" there, reporting "no such session" for a session that
+// exists. has-session, attach, new-session and new-window all take it. Without the
 // "=" prefix tmux also accepts a prefix match, so a workspace named `topic`
 // would find the unrelated session `topic-2` and drop the window in it.
 func exactTarget(name string) string {

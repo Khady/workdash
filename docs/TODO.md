@@ -5,23 +5,6 @@ by what I would do next, not by size.
 
 ## Next
 
-### Nothing to show a window in
-With no tmux client attached anywhere — no server running at all — a popup action
-still does the work but leaves the local view in a detached session and returns
-"attach with `tmux attach -t …`", which cannot be acted on from a browser. The
-remote side is fine and durable; only the view is stranded.
-
-This is the narrow remainder of what `terminal_launcher` did in the old design. It
-was used for everything there, which is why removing it looked free; the part that
-was actually load-bearing is this fallback. A single optional setting would do:
-
-```toml
-terminal = ["kitty", "--single-instance", "-e"]   # only used when no client exists
-```
-
-Appended with `tmux attach -t <session>`. It should never be reached when a client
-is attached, which is the common case.
-
 ### Confirmation for destructive actions
 `gwt-delete` runs immediately — one click in the Firefox popup, one keypress in
 the TUI, no prompt. The old TUI prompted; the new action language has no
