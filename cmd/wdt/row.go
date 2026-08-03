@@ -16,6 +16,8 @@ import (
 type badge struct {
 	Text  string
 	Color string
+	// URL makes the text a terminal hyperlink when the terminal supports OSC 8.
+	URL string
 }
 
 // row is everything one line of the table shows. It is derived once per snapshot
@@ -93,7 +95,7 @@ func prBadge(ws workspace.Workspace) badge {
 			color = colorPRDraft
 		}
 	}
-	return badge{Text: fmt.Sprintf("#%d", ws.PR.Number), Color: color}
+	return badge{Text: fmt.Sprintf("#%d", ws.PR.Number), Color: color, URL: ws.PR.URL}
 }
 
 // sessionSummary describes the workspace's tmux state in one cell: the session

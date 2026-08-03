@@ -276,7 +276,13 @@ func (a *app) setRow(index int, r row) {
 	a.table.SetCell(index, 1, styled(r.Repo, colorMuted, false).SetMaxWidth(18))
 	a.table.SetCell(index, 2, styled(r.Branch, branchColor, !r.Unlinked).SetMaxWidth(46).SetExpansion(1))
 	a.table.SetCell(index, 3, tagged(renderBadges(r.Facets)))
-	a.table.SetCell(index, 4, tagged(renderBadges([]badge{r.PR})).SetAlign(tview.AlignRight).SetMaxWidth(7))
+	pr := tagged(renderBadges([]badge{r.PR})).SetAlign(tview.AlignRight).SetMaxWidth(7)
+	if r.PR.URL != "" {
+		// tcell emits OSC 8 from the style, so the number is clickable in a
+		// terminal that supports it and plain text in one that does not.
+		pr.SetStyle(pr.Style.Url(r.PR.URL))
+	}
+	a.table.SetCell(index, 4, pr)
 	a.table.SetCell(index, 5, styled(r.Session, colorMuted, false).SetMaxWidth(38).SetExpansion(1))
 	a.table.SetCell(index, 6, styled(r.Age, colorMuted, false).SetAlign(tview.AlignRight).SetMaxWidth(5))
 }

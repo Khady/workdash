@@ -353,3 +353,18 @@ func viewIndex(label string) int {
 	}
 	return 0
 }
+
+func TestPRBadgeCarriesTheURL(t *testing.T) {
+	ws := workspace.Workspace{PR: &workspace.PR{Number: 7, State: "OPEN",
+		URL: "https://github.com/o/r/pull/7"}}
+	got := prBadge(ws)
+	if got.Text != "#7" {
+		t.Fatalf("badge text = %q, want #7", got.Text)
+	}
+	if got.URL != "https://github.com/o/r/pull/7" {
+		t.Fatalf("badge url = %q, want the PR url", got.URL)
+	}
+	if prBadge(workspace.Workspace{}).URL != "" {
+		t.Fatal("a workspace with no PR should carry no url")
+	}
+}

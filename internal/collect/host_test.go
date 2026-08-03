@@ -135,3 +135,43 @@ func TestCollectHostReportsTransportFailure(t *testing.T) {
 		t.Fatal("CollectHost() error = nil, want the transport failure")
 	}
 }
+
+// A workspace has to carry how its host is reached, or an action cannot express
+// "open the remote path in a local editor" — code --remote and zed ssh:// both
+// need the ssh target, and only the collector knows it.
+func TestCollectHostStampsTheSSHTarget(t *testing.T) {
+	host := Host{Label: "asia", SSHTarget: "me@asia", Repos: []Repo{{Root: "/srv/a", Label: "a"}}}
+	transport := fakeTransport{out: map[string]string{
+		worktreeKey(0): "worktree /srv/a\nHEAD abc\nbranch refs/heads/main\n",
+		branchKey(0):   "main\nidle\n",
+	}}
+	git, _, err := CollectHost(transport, host)
+	if err != nil {
+		t.Fatalf("CollectHost() error = %v", err)
+	}
+	for _, record := range git {
+		if record.SSHTarget != "me@asia" {
+			t.Fatalf("record %+v ssh target = %q, want me@asia", record.ID, record.SSHTarget)
+		}
+	}
+	if got := workspace.Index(git, nil).Workspaces[0].SSHTarget; got != "me@asia" {
+		t.Fatalf("workspace ssh target = %q, want me@asia", got)
+	}
+}
+
+func TestCollectHostLeavesTheSSHTargetEmptyForLocal(t *testing.T) {
+	host := Host{Label: "local", Repos: []Repo{{Root: "/a", Label: "a"}}}
+	transport := fakeTransport{out: map[string]string{
+		worktreeKey(0): "worktree /a\nHEAD abc\nbranch refs/heads/main\n",
+		branchKey(0):   "main\n",
+	}}
+	git, _, err := CollectHost(transport, host)
+	if err != nil {
+		t.Fatalf("CollectHost() error = %v", err)
+	}
+	for _, record := range git {
+		if record.SSHTarget != "" {
+			t.Fatalf("local record %+v has ssh target %q", record.ID, record.SSHTarget)
+		}
+	}
+}

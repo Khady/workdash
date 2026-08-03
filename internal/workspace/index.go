@@ -12,6 +12,7 @@ type GitRecord struct {
 	ID           ID
 	RepoLabel    string
 	RepoFullName string
+	SSHTarget    string
 	CommittedAt  *time.Time
 	Worktree     *Worktree
 }
@@ -54,8 +55,9 @@ func Index(git []GitRecord, sessions []SessionRecord) Snapshot {
 		existing, ok := byID[record.ID]
 		if !ok {
 			byID[record.ID] = &Workspace{ID: record.ID, RepoLabel: record.RepoLabel,
-				RepoFullName: record.RepoFullName, CommittedAt: record.CommittedAt,
-				Worktree: copyWorktree(record.Worktree)}
+				RepoFullName: record.RepoFullName, SSHTarget: record.SSHTarget,
+				CommittedAt: record.CommittedAt,
+				Worktree:    copyWorktree(record.Worktree)}
 			order = append(order, record.ID)
 			continue
 		}
@@ -67,6 +69,9 @@ func Index(git []GitRecord, sessions []SessionRecord) Snapshot {
 		}
 		if existing.RepoFullName == "" {
 			existing.RepoFullName = record.RepoFullName
+		}
+		if existing.SSHTarget == "" {
+			existing.SSHTarget = record.SSHTarget
 		}
 		if record.CommittedAt != nil && (existing.CommittedAt == nil || record.CommittedAt.After(*existing.CommittedAt)) {
 			existing.CommittedAt = record.CommittedAt

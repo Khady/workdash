@@ -63,7 +63,9 @@ asia   (unlinked) claude rc monorepo     session
 ```
 
 The columns are host, repo, branch, the `W S` facet grid, PR number, session
-detail and age. There is no `P` slot in the grid: the PR column already shows the
+detail and age. The PR number is a terminal hyperlink — clickable where your
+terminal supports OSC 8, plain text where it does not. There is no `P` slot in the
+grid: the PR column already shows the
 number, and a badge saying "there is a PR" beside it is the same fact twice. **Facets are the
 point**: they say what currently exists for that branch, and the available
 actions follow from them. A branch with no worktree gets "create worktree"; one
@@ -143,7 +145,10 @@ shell = true                # optional; run via your login shell so rc functions
 ```
 
 Placeholders: `{path}` `{branch}` `{repo}` `{host}` `{session}` `{pr_url}`
-`{pr_number}`. Anything else in braces is left alone, so `awk '{print $1}'` works
+`{pr_number}` `{ssh_target}`. `{ssh_target}` is how a *local* editor opens a
+*remote* path — `code --remote ssh-remote+{ssh_target} {path}` with
+`run_on = "local"` — and it is empty on the local host, which correctly makes such
+an action inapplicable there. Anything else in braces is left alone, so `awk '{print $1}'` works
 as an argument. A placeholder that has no value for a workspace makes the action
 unavailable there rather than producing a broken command.
 
@@ -201,9 +206,6 @@ can tell "nothing to show" from "everything is broken".
 - **`gwt-delete` runs immediately, with no confirmation.** The old TUI prompted;
   the CLI has no prompt layer yet. It is in the config because you had it, but it
   is the one action to be careful with in a popup.
-- **No remote GUI editors.** `code --remote` and `zed ssh://` from `config.toml`
-  did not carry over: they need an ssh target inside the action language. Terminal
-  editors are unaffected, since a remote `pane` runs where the code is.
 - **`xdg-open` guesses from its environment.** Inside a tmux popup that is the
   tmux *server's* environment, not your session's, which is why the browser action
   names `firefox` explicitly instead.

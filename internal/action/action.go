@@ -134,6 +134,13 @@ func placeholders(ws workspace.Workspace) map[string]string {
 		"{repo}":   ws.ID.Repo,
 		"{host}":   ws.ID.Host,
 	}
+	// {ssh_target} lets a local editor open a remote path: "code --remote
+	// ssh-remote+{ssh_target} {path}". Empty on the local host, which makes such
+	// an action inapplicable there — correct, since a local editor opens the path
+	// directly.
+	if ws.SSHTarget != "" {
+		values["{ssh_target}"] = ws.SSHTarget
+	}
 	if ws.Worktree != nil {
 		values["{path}"] = ws.Worktree.Path
 	}
@@ -167,7 +174,7 @@ func renderAll(argv []string, values map[string]string) ([]string, bool) {
 // Treating those as placeholders silently deleted the action.
 var known = map[string]bool{
 	"{path}": true, "{branch}": true, "{repo}": true, "{host}": true,
-	"{session}": true, "{pr_url}": true, "{pr_number}": true,
+	"{session}": true, "{pr_url}": true, "{pr_number}": true, "{ssh_target}": true,
 }
 
 // render substitutes known {placeholder} spans and passes anything else through

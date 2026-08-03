@@ -60,8 +60,13 @@ type Workspace struct {
 	// RepoFullName is the "owner/name" the remote points at. It is how a pull
 	// request finds its workspace, and it is why the same PR attaches to every
 	// clone of that repo rather than just one.
-	RepoFullName string    `json:"repo_full_name,omitempty"`
-	Worktree     *Worktree `json:"worktree,omitempty"`
+	RepoFullName string `json:"repo_full_name,omitempty"`
+	// SSHTarget is how this workspace's host is reached, empty for the local one.
+	// It is here because an action may need it: opening a remote path in a local
+	// editor means "code --remote ssh-remote+<target>", and only the collector
+	// knows the target.
+	SSHTarget string    `json:"ssh_target,omitempty"`
+	Worktree  *Worktree `json:"worktree,omitempty"`
 	// CommittedAt is the branch tip's commit time, used for recency ordering. It
 	// is what makes a long list navigable, so it is collected even though nothing
 	// else needs it.

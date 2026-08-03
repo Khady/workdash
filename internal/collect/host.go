@@ -23,15 +23,16 @@ func CollectHost(transport Transport, host Host) ([]workspace.GitRecord, []works
 		// branch is created by its worktree record, an idle one by its branch
 		// record, and the pull request has to find either.
 		fullName := parseFullName(sections[remoteKey(i)])
-		git = append(git, withFullName(parseWorktrees(sections[worktreeKey(i)], host.Label, repo), fullName)...)
-		git = append(git, withFullName(parseBranches(sections[branchKey(i)], host.Label, repo), fullName)...)
+		git = append(git, withFullName(parseWorktrees(sections[worktreeKey(i)], host.Label, repo), fullName, host.SSHTarget)...)
+		git = append(git, withFullName(parseBranches(sections[branchKey(i)], host.Label, repo), fullName, host.SSHTarget)...)
 	}
 	return git, parseSessions(sections["tmux"], host.Label), nil
 }
 
-func withFullName(records []workspace.GitRecord, fullName string) []workspace.GitRecord {
+func withFullName(records []workspace.GitRecord, fullName, sshTarget string) []workspace.GitRecord {
 	for i := range records {
 		records[i].RepoFullName = fullName
+		records[i].SSHTarget = sshTarget
 	}
 	return records
 }
