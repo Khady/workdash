@@ -39,6 +39,12 @@ func (r *recordRunner) Run(cwd string, argv []string) (string, error) {
 	// command arrives as remote shell text. Recognising only the direct form
 	// would let the remote path silently take the wrong branch.
 	text := strings.Join(argv, " ")
+	if argv[0] == "ssh" {
+		// What a shell on the far side would run: the last element, one layer of
+		// quoting removed. Matching the raw element instead would see the escaped
+		// form ('\'') and read every -t= target as garbage.
+		text = unquoteOnce(argv[len(argv)-1])
+	}
 	if strings.Contains(text, "list-clients") {
 		return r.clients, nil
 	}

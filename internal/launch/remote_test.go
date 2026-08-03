@@ -32,16 +32,39 @@ func localWindow(t *testing.T, runner *recordRunner) []string {
 	return nil
 }
 
-// remoteCommands returns the command text sent over ssh, one per call.
+// remoteCommands returns what tmux on the far side receives, one per ssh call:
+// the command as the remote shell hands it to the login shell, one layer of
+// quoting already removed. Assertions are then about which tmux command was sent,
+// not about how many levels of shell it had to survive on the way.
 func remoteCommands(runner *recordRunner) []string {
 	out := []string{}
 	for i := range runner.calls {
 		argv := runner.argv(i)
 		if len(argv) > 0 && argv[0] == "ssh" {
-			out = append(out, argv[len(argv)-1])
+			out = append(out, unquoteOnce(argv[len(argv)-1]))
 		}
 	}
 	return out
+}
+
+// unquoteOnce undoes one layer of POSIX quoting, which is exactly what the remote
+// shell does to the command ssh sends it. The fake stands in for the far side, so
+// it has to see what a shell there would see.
+func unquoteOnce(text string) string {
+	var out strings.Builder
+	quoted := false
+	for i := 0; i < len(text); i++ {
+		switch {
+		case text[i] == '\'':
+			quoted = !quoted
+		case !quoted && text[i] == '\\' && i+1 < len(text):
+			i++
+			out.WriteByte(text[i])
+		default:
+			out.WriteByte(text[i])
+		}
+	}
+	return out.String()
 }
 
 func remoteResolved() action.Resolved {
@@ -120,8 +143,17 @@ func TestRemoteCaptureSurvivesRemoteReparsing(t *testing.T) {
 	if argv[0] != "ssh" {
 		t.Fatalf("argv = %q, want ssh", argv)
 	}
-	// ssh sends the last element verbatim for the remote shell to parse.
-	remote := argv[len(argv)-1]
+	// Simulate the far side properly, both layers of it: sshd joins ssh's arguments
+	// and hands them to a shell, which re-parses them and runs the login shell we
+	// asked for. -lc becomes -c only so the test does not source whatever profile
+	// the machine running it has; the quoting under test is identical.
+	target := 0
+	for i, arg := range argv {
+		if arg == "me@asia" {
+			target = i
+		}
+	}
+	remote := strings.Replace(strings.Join(argv[target+1:], " "), "bash -lc ", "bash -c ", 1)
 	out, err := exec.Command("bash", "-c", remote).Output()
 	if err != nil {
 		t.Fatalf("remote command %q failed: %v", remote, err)
@@ -140,6 +172,39 @@ func TestRemoteCaptureRunsInTheWorkspaceDirectory(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(runner.argv(0), " "), "/srv/wt/topic") {
 		t.Fatalf("argv = %q, want it to cd into the workspace", runner.argv(0))
+	}
+}
+
+// Every remote command goes through a login shell, because sshd does not.
+//
+// A tmux server keeps the PATH it was born with for its whole life: on tmux 3.5a
+// a pane's PATH comes from the server process, and neither `set-environment -g
+// PATH` nor `new-window -e PATH=...` overrides it. sshd runs a non-interactive,
+// non-login shell, so `ssh host tmux new-session` creates a server with
+// /usr/local/bin:/usr/bin:/bin — nothing the user installed under their home.
+// Every window opened in that server afterwards, including ones opened by the
+// host's own tmux bindings, then fails with "claude: command not found".
+func TestRemoteCommandsRunUnderALoginShell(t *testing.T) {
+	runner := &recordRunner{}
+	if _, err := remoteFixture(runner, true).Pane(remoteResolved()); err != nil {
+		t.Fatalf("Pane() error = %v", err)
+	}
+	calls := 0
+	for i := range runner.calls {
+		argv := runner.argv(i)
+		if len(argv) == 0 || argv[0] != "ssh" {
+			continue
+		}
+		calls++
+		// The command is one argv element after `bash -lc`, because ssh joins its
+		// arguments and the remote shell re-parses them: unquoted, bash -c would
+		// take only the first word as its command.
+		if len(argv) < 3 || argv[len(argv)-3] != "bash" || argv[len(argv)-2] != "-lc" {
+			t.Fatalf("ssh call = %q, want it to end in bash -lc <command>", argv)
+		}
+	}
+	if calls == 0 {
+		t.Fatal("no ssh calls recorded")
 	}
 }
 

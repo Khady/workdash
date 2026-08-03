@@ -242,8 +242,28 @@ func (r Remote) ssh(argv []string) (string, error) {
 	return r.sshText(shellquote.Join(argv))
 }
 
+// sshText runs one command on the host, through a login shell.
+//
+// The login shell is not a nicety. sshd runs a command in a non-interactive,
+// non-login shell, whose PATH on a Debian host is /usr/local/bin:/usr/bin:/bin —
+// none of what the user installed under their home. That matters far beyond the
+// command itself, because the tmux server keeps the PATH it was born with for its
+// whole life: on tmux 3.5a a pane's PATH comes from the server process, and
+// neither `set-environment -g PATH` nor `new-window -e PATH=...` overrides it. So
+// a server created by a bare `ssh host tmux new-session` cripples every window
+// opened in it afterwards, including ones opened by the host's own tmux
+// bindings — `claude: command not found` from a binding that had worked for
+// years, because the server behind it was no longer started by hand.
+//
+// A login shell is what an interactive ssh would have given it, so this restores
+// the environment the host was set up to have. It costs about 10ms per call.
+//
+// The command is quoted for the remote shell: ssh joins its arguments with spaces
+// and lets the remote shell re-parse them, so `bash -lc` would otherwise take
+// only the first word as its command and the rest as positional parameters.
 func (r Remote) sshText(command string) (string, error) {
-	call := []string{"ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", r.Target, command}
+	call := []string{"ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", r.Target,
+		"bash", "-lc", shellquote.Quote(command)}
 	return r.Runner.Run("", call)
 }
 
