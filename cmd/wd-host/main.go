@@ -93,17 +93,31 @@ func failure(format string, args ...any) response {
 	return response{OK: false, Error: fmt.Sprintf(format, args...)}
 }
 
+type hostMode int
+
+const (
+	modeServe hostMode = iota
+	modeRefresh
+)
+
+// mode reads the invocation. Only an explicit "refresh" is a subcommand: Firefox
+// passes the manifest path — and in some versions the extension id — as arguments,
+// so rejecting unrecognised ones made the host exit without writing a frame, which
+// the popup reports as Firefox's own "An unexpected error occurred".
+func mode(argv []string) hostMode {
+	if len(argv) > 1 && argv[1] == "refresh" {
+		return modeRefresh
+	}
+	return modeServe
+}
+
 func main() {
 	// `wd-host refresh` is not a browser request: it is how the detached background
 	// refresh re-execs this binary. snapshot.SpawnBackgroundRefresh runs
 	// os.Executable() with "refresh", and under Firefox that executable is this one,
 	// so serving the subcommand is what makes "render now, catch up behind you" work
 	// for the browser exactly as it does for the CLI.
-	if len(os.Args) > 1 {
-		if os.Args[1] != "refresh" {
-			fmt.Fprintf(os.Stderr, "wd-host: unexpected argument %q; this is a Firefox native-messaging host\n", os.Args[1])
-			os.Exit(2)
-		}
+	if mode(os.Args) == modeRefresh {
 		if _, warnings := refreshPRs(); len(warnings) > 0 {
 			for _, warning := range warnings {
 				fmt.Fprintln(os.Stderr, "wd-host: "+warning)

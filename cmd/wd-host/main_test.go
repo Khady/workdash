@@ -76,3 +76,26 @@ func TestSuccessResponseAlwaysCarriesOK(t *testing.T) {
 		t.Fatalf("response = %s, want a bare ok:true", data)
 	}
 }
+
+// Firefox invokes a native host with the manifest path — and in some versions the
+// extension id — as arguments. Treating any argument as a subcommand made the host
+// exit 2 without writing a frame, which surfaces in the popup as Firefox's own "An
+// unexpected error occurred" rather than anything workdash said.
+func TestModeIgnoresTheArgumentsFirefoxPasses(t *testing.T) {
+	manifest := "/home/me/.mozilla/native-messaging-hosts/io.github.khady.workdash.json"
+	for _, argv := range [][]string{
+		{"wd-host", manifest},
+		{"wd-host", manifest, "workdash@khady.github.io"},
+		{"wd-host"},
+	} {
+		if got := mode(argv); got != modeServe {
+			t.Fatalf("mode(%q) = %v, want serve: Firefox passes the manifest path", argv, got)
+		}
+	}
+}
+
+func TestModeStillRecognisesTheRefreshSubcommand(t *testing.T) {
+	if got := mode([]string{"wd-host", "refresh"}); got != modeRefresh {
+		t.Fatalf("mode(refresh) = %v, want refresh", got)
+	}
+}
