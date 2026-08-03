@@ -51,6 +51,13 @@ TUI columns and `wd ls --json`.
   window collector.
 - **`{session}` picks the first session** when a workspace has several. Choosing
   belongs in a frontend that can ask.
+- **The local tmux server inherits whoever created it.** Remote commands now go
+  through a login shell so the server workdash creates on a host has a usable
+  PATH, and a tmux server keeps its birth PATH for life. Locally the same hole
+  exists in principle — the Firefox host is started by Firefox, so a server
+  created from the popup gets Firefox's environment. Measured on this machine
+  Firefox's PATH is the full one, so there is nothing to fix yet; a desktop
+  launched without a shell-derived environment would need the same treatment.
 - **`emacs`/`code` on a *local* workspace vs `emacsclient`.** GUI emacs under
   `background` is fine now, but `emacsclient -c -a ''` reuses a running instance
   and is probably what you want.
