@@ -172,8 +172,12 @@ func (t Tmux) pane(resolved action.Resolved, options map[string]string) (string,
 	}
 	t.stamp(strings.TrimSpace(id), options)
 
+	// Always name the session. Suppressing it when the window went to the session
+	// the client is already viewing looked like removing noise, but the caller that
+	// most needs it is exactly the one that is not inside tmux: a browser popup
+	// saying "opened tmux window" and nothing else does not say where to look.
 	where := ""
-	if target != "" && (!hasViewer || target != viewer.Session) {
+	if target != "" {
 		where = fmt.Sprintf(" in session %q", target)
 	}
 	// A window in a session the client is not viewing is still invisible, so move
