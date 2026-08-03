@@ -111,9 +111,18 @@ func Index(git []GitRecord, sessions []SessionRecord) Snapshot {
 	for _, id := range order {
 		workspaces = append(workspaces, *byID[id])
 	}
-	// Recency first: the branch touched an hour ago belongs at the top, whatever
-	// the alphabet says. Undated workspaces sort after dated ones so a source that
-	// reports no timestamps still lists predictably.
+	sortWorkspaces(workspaces)
+	sort.SliceStable(orphans, func(i, j int) bool {
+		return orphans[i].Session.Name < orphans[j].Session.Name
+	})
+	return Snapshot{Workspaces: workspaces, Orphans: orphans}
+}
+
+// sortWorkspaces puts recency first: the branch touched an hour ago belongs at the
+// top, whatever the alphabet says. Undated workspaces sort after dated ones so a
+// source that reports no timestamps still lists predictably — which is also where
+// a workspace derived from a pull request belongs, having no commit of its own.
+func sortWorkspaces(workspaces []Workspace) {
 	sort.SliceStable(workspaces, func(i, j int) bool {
 		a, b := workspaces[i], workspaces[j]
 		if (a.CommittedAt == nil) != (b.CommittedAt == nil) {
@@ -130,10 +139,6 @@ func Index(git []GitRecord, sessions []SessionRecord) Snapshot {
 		}
 		return a.ID.Branch < b.ID.Branch
 	})
-	sort.SliceStable(orphans, func(i, j int) bool {
-		return orphans[i].Session.Name < orphans[j].Session.Name
-	})
-	return Snapshot{Workspaces: workspaces, Orphans: orphans}
 }
 
 // copyWorktree keeps Index honest about being a pure merge: the returned
@@ -171,4 +176,73 @@ func AttachPRs(snap Snapshot, prs []PRRecord) Snapshot {
 		}
 	}
 	return snap
+}
+
+// AddPRWorkspaces creates a workspace for every pull request that matched none.
+//
+// It is the other half of AttachPRs, and separate from it for a reason: attaching
+// is free and always wanted, while creating changes what the list contains. A pull
+// request on a branch nobody has fetched is a real thing to act on — "make me a
+// worktree for this" is the whole point — but it is not a branch anyone has, so
+// only a caller that wants those rows asks for them.
+//
+// Where the workspace goes is derived, never invented. A pull request knows its
+// repository as "owner/name" and nothing about machines, so the host and path come
+// from a clone workdash already tracks; a pull request in an untracked repository
+// is dropped, because a row whose actions cannot run is worse than no row. A repo
+// cloned on two machines yields one workspace per machine: either could take the
+// worktree, and picking one would be a guess.
+func AddPRWorkspaces(snap Snapshot, prs []PRRecord) Snapshot {
+	homes := map[string][]Workspace{}
+	taken := map[ID]bool{}
+	for _, ws := range snap.Workspaces {
+		taken[ws.ID] = true
+		if ws.RepoFullName != "" {
+			homes[ws.RepoFullName] = appendHome(homes[ws.RepoFullName], ws)
+		}
+	}
+	added := false
+	for _, record := range prs {
+		if record.Branch == "" {
+			continue
+		}
+		// Built fresh rather than by appending one map entry onto another: that would
+		// write into the first entry's backing array, and the map is read again on
+		// every later record.
+		candidates := append([]Workspace{}, homes[record.FullName]...)
+		if record.HeadFullName != record.FullName {
+			candidates = append(candidates, homes[record.HeadFullName]...)
+		}
+		for _, home := range candidates {
+			id := ID{Host: home.ID.Host, Repo: home.ID.Repo, Branch: record.Branch}
+			// Already a workspace: either AttachPRs put this pull request on it, or the
+			// branch carries a different one. Both are the existing row's business.
+			if taken[id] {
+				continue
+			}
+			taken[id] = true
+			added = true
+			pr := record.PR
+			snap.Workspaces = append(snap.Workspaces, Workspace{
+				ID: id, RepoLabel: home.RepoLabel, RepoFullName: home.RepoFullName,
+				SSHTarget: home.SSHTarget, PR: &pr,
+			})
+		}
+	}
+	if added {
+		sortWorkspaces(snap.Workspaces)
+	}
+	return snap
+}
+
+// appendHome keeps one entry per clone. Every branch in a repo reports the same
+// repo facts, so without this a repo with 700 branches would offer 700 identical
+// homes and each pull request would be considered against all of them.
+func appendHome(homes []Workspace, ws Workspace) []Workspace {
+	for _, home := range homes {
+		if home.ID.Host == ws.ID.Host && home.ID.Repo == ws.ID.Repo {
+			return homes
+		}
+	}
+	return append(homes, ws)
 }

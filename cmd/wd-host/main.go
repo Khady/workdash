@@ -203,12 +203,14 @@ func handlePRActions(rawURL string) response {
 	if err != nil {
 		return failure("%v", err)
 	}
+	snap, pageWarnings := withPRFromPage(cfg, snap, canonical)
+	warnings = append(warnings, pageWarnings...)
 	groups := groupsForPR(snap, cfg.Actions, canonical)
 	if len(groups) == 0 {
 		// An empty success would render as a blank popup. Which of the two reasons it
 		// is matters: no workspace at all, or a workspace with nothing to offer.
 		if len(matchingWorkspaces(snap, canonical)) == 0 {
-			return failure("no workdash workspace has this pull request's branch checked out or fetched")
+			return failure("workdash tracks no clone of this pull request's repository")
 		}
 		return failure("workdash knows this branch but no configured action applies to it")
 	}
@@ -219,8 +221,14 @@ func handlePRActions(rawURL string) response {
 }
 
 // handlePRSummary answers the badge, which wants a count, and a human, who wants
-// to know where workdash has this branch. A pull request nobody has checked out is
-// a legitimate empty answer here rather than an error: the badge simply clears.
+// to know where workdash has this branch. A pull request in a repository workdash
+// does not track is a legitimate empty answer here rather than an error: the badge
+// simply clears.
+//
+// It does the same on-demand lookup as the popup, deliberately. A badge that reads
+// zero for a colleague's pull request is a badge you never click, so the count has
+// to know what the popup would offer. The extra cost is one `gh` call on a page
+// view that already rebuilds the whole snapshot.
 func handlePRSummary(rawURL string) response {
 	canonical, err := canonicalPRURL(rawURL)
 	if err != nil {
@@ -230,6 +238,8 @@ func handlePRSummary(rawURL string) response {
 	if err != nil {
 		return failure("%v", err)
 	}
+	snap, pageWarnings := withPRFromPage(cfg, snap, canonical)
+	warnings = append(warnings, pageWarnings...)
 	return response{
 		OK: true, Status: "ready", LoadedAt: collectedNow(), Warnings: warnings,
 		ActionCount: countActions(groupsForPR(snap, cfg.Actions, canonical)),
@@ -249,6 +259,11 @@ func handleExecute(token string) response {
 	if err != nil {
 		return failure("%v", err)
 	}
+	// The same lookup the popup did, or the workspace the button belongs to would
+	// not exist here: a pull request workspace lives only as long as the snapshot
+	// that fetched it, and this process is a fresh one.
+	snap, pageWarnings := withPRFromPage(cfg, snap, ref.PRURL)
+	warnings = append(warnings, pageWarnings...)
 	resolved, err := resolveRef(snap, cfg.Actions, ref)
 	if err != nil {
 		return failure("%v", err)

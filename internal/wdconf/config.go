@@ -396,3 +396,31 @@ func checkFacet(actionID, need string) error {
 	}
 	return fmt.Errorf("action %q: unknown facet %q in `needs`, want one of %s (optionally prefixed with `!`)", actionID, facet, strings.Join(knownFacets, ", "))
 }
+
+// AccountForRepo names the `gh` account that can see a repository's pull requests,
+// found by the clone's path on a given host. It exists for the on-demand pull
+// request lookup, which knows a repository as "owner/name" and has to reach GitHub
+// with the same credential the cached searches used — the wrong account sees a
+// private repository as absent rather than as forbidden.
+//
+// An empty answer is the normal single-account case, not a failure.
+func (c Config) AccountForRepo(host, root string) string {
+	if host == LocalHost {
+		return accountForRoot(c.Repos, root)
+	}
+	for _, entry := range c.Hosts {
+		if entry.Label == host {
+			return accountForRoot(entry.Repos, root)
+		}
+	}
+	return ""
+}
+
+func accountForRoot(repos []Repo, root string) string {
+	for _, repo := range repos {
+		if repo.Root == root {
+			return repo.GHAccount
+		}
+	}
+	return ""
+}

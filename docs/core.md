@@ -110,7 +110,49 @@ The join key is `(repo full name, head branch)`. Full name comes from
 `git remote get-url origin`, collected as another section of the host plan, so it
 costs nothing extra.
 
-One `gh api graphql` call runs per distinct `gh_account`:
+### Which pull requests
+
+Two searches run per distinct `gh_account`, with deliberately different contracts:
+
+| Search | Paged | Contract |
+|---|---|---|
+| `is:pr is:open involves:@me` | yes, every page | **Complete.** A review request you cannot see is a review you will not do. |
+| `is:pr author:@me sort:updated-desc` | one page | **A window**, for the merged and closed ones that say a worktree is finished with. |
+
+The first cannot be `involves:@me` across all states: that is 7580 results on a
+real account and GitHub caps search at 1000 however you page it. The second cannot
+be complete for the same reason, and does not pretend to be.
+
+Pagination matters more than it looks. `gh --paginate` writes **one JSON document
+per page, concatenated**, so unmarshalling the whole stream at once silently
+returns the first page and no error — the exact truncation the pagination was
+added to remove. It is parsed with a decoder loop for that reason.
+
+### The pull request you are only looking at
+
+No search covers a pull request you have no relationship with. Measured against a
+real colleague's PR: it matched none of `author`, `review-requested`, `commenter`
+or `mentions`, and `repo:… is:open` — the only search that finds it — is 826 pull
+requests, nine paginated requests, to make one of them actionable.
+
+So the browser asks about exactly the one on screen, with `collect.PRByNumber`, and
+only when nothing in the snapshot already answers for it. That pull request has no
+local branch, so there is nothing for `AttachPRs` to decorate;
+`workspace.AddPRWorkspaces` creates the workspace instead.
+
+Where it goes is derived, never invented: the host and path come from a clone
+workdash already tracks, found by full name, so a pull request in an untracked
+repository is dropped rather than becoming a row whose actions cannot run. A repo
+cloned on two machines yields one workspace per machine, since either could take
+the worktree.
+
+`AddPRWorkspaces` is a separate function from `AttachPRs` because attaching is free
+and always wanted, while creating changes what the list contains. Only the browser
+path calls it today; pointing `wdt` at it would add a row per unfetched pull request.
+
+### Accounts and credentials
+
+One pair of calls runs per distinct `gh_account`:
 
 ```toml
 [[repos]]
@@ -128,9 +170,14 @@ the base repo while the local clone's origin is the fork. Verified against real
 data: a `Khady/dune` clone finds its `ocaml/dune` pull requests.
 
 Because each CLI run is a fresh process, fetches go through a 90-second on-disk
-cache under `$XDG_CACHE_HOME/workdash`. Cold `wd ls` is ~3s, warm is ~0.12s. The
+cache under `$XDG_CACHE_HOME/workdash`. Warm `wd ls` is ~0.12s of PR work. The
 cache is disposable by design — a corrupt entry counts as a miss and a failed
 fetch is never stored, so deleting the directory is always safe.
+
+A full refresh is four requests per account, so accounts are refreshed
+concurrently: in series two accounts took 11.8s, and the popup's refresh button
+waits on that sum. Concurrent it is 6.7s, of which most is the three sequential
+pages `gh --paginate` fetches inside one account.
 
 ## Config
 

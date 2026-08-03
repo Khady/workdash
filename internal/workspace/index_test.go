@@ -240,3 +240,116 @@ func TestIndexKeepsTheNewestDateWhenRecordsMerge(t *testing.T) {
 		t.Fatalf("committed at = %v, want %v", got, recent)
 	}
 }
+
+// A pull request on a branch nobody has fetched is the case the browser has to
+// answer: you are looking at a colleague's PR and want a worktree for it. AttachPRs
+// alone cannot help — there is nothing to attach to — so the pull request has to
+// create the workspace.
+func TestAddPRWorkspacesCreatesAWorkspaceForAnUnknownBranch(t *testing.T) {
+	snap := Index([]GitRecord{
+		{ID: ID{Host: "asia", Repo: "/srv/mono", Branch: "mine"}, RepoLabel: "monorepo",
+			RepoFullName: "ahrefs-core/monorepo", SSHTarget: "me@asia"},
+	}, nil)
+	got := AddPRWorkspaces(snap, []PRRecord{
+		{FullName: "ahrefs-core/monorepo", Branch: "koonwen/ci/dune-engine",
+			PR: PR{Number: 37238, Title: "ci: dune engine for CI", State: "OPEN"}},
+	})
+	if len(got.Workspaces) != 2 {
+		t.Fatalf("workspaces = %+v, want the pull request to add one", got.Workspaces)
+	}
+	var added Workspace
+	for _, ws := range got.Workspaces {
+		if ws.ID.Branch == "koonwen/ci/dune-engine" {
+			added = ws
+		}
+	}
+	// The host and repo are derived from a repo workdash already tracks, never
+	// invented: that is what makes the workspace actionable, since every action
+	// needs to know where to run.
+	if added.ID.Host != "asia" || added.ID.Repo != "/srv/mono" {
+		t.Fatalf("added = %+v, want it placed on the host that has this repository", added.ID)
+	}
+	if added.RepoLabel != "monorepo" || added.SSHTarget != "me@asia" {
+		t.Fatalf("added = %+v, want the repo's label and ssh target carried over", added)
+	}
+	if added.Worktree != nil || len(added.Sessions) != 0 {
+		t.Fatalf("added = %+v, want a pr facet only", added)
+	}
+	if !added.Has(FacetPR) || added.PR.Number != 37238 {
+		t.Fatalf("added pr = %+v, want #37238", added.PR)
+	}
+}
+
+// The branch may already be a workspace, in which case AttachPRs' job is done and
+// creating a second one would duplicate the row.
+func TestAddPRWorkspacesLeavesKnownBranchesAlone(t *testing.T) {
+	snap := AttachPRs(Index([]GitRecord{
+		{ID: ID{Host: "asia", Repo: "/srv/mono", Branch: "topic"}, RepoLabel: "monorepo",
+			RepoFullName: "ahrefs-core/monorepo"},
+	}, nil), []PRRecord{{FullName: "ahrefs-core/monorepo", Branch: "topic", PR: PR{Number: 1}}})
+	got := AddPRWorkspaces(snap, []PRRecord{
+		{FullName: "ahrefs-core/monorepo", Branch: "topic", PR: PR{Number: 1}},
+	})
+	if len(got.Workspaces) != 1 {
+		t.Fatalf("workspaces = %+v, want no duplicate of a branch already known", got.Workspaces)
+	}
+}
+
+// A repo cloned on two machines could take the worktree on either, so both are
+// offered rather than one being picked arbitrarily.
+func TestAddPRWorkspacesOffersEveryHostThatHasTheRepository(t *testing.T) {
+	snap := Index([]GitRecord{
+		{ID: ID{Host: "local", Repo: "/home/mono", Branch: "a"}, RepoLabel: "monorepo", RepoFullName: "o/mono"},
+		{ID: ID{Host: "asia", Repo: "/srv/mono", Branch: "b"}, RepoLabel: "monorepo", RepoFullName: "o/mono"},
+	}, nil)
+	got := AddPRWorkspaces(snap, []PRRecord{{FullName: "o/mono", Branch: "theirs", PR: PR{Number: 2}}})
+	hosts := map[string]bool{}
+	for _, ws := range got.Workspaces {
+		if ws.ID.Branch == "theirs" {
+			hosts[ws.ID.Host] = true
+		}
+	}
+	if !hosts["local"] || !hosts["asia"] {
+		t.Fatalf("hosts offering the branch = %v, want both clones", hosts)
+	}
+}
+
+// A fork pull request names the base repo, and the clone workdash tracks may be
+// either side of it.
+func TestAddPRWorkspacesPlacesAForkPullRequestByHeadRepository(t *testing.T) {
+	snap := Index([]GitRecord{
+		{ID: ID{Host: "local", Repo: "/a", Branch: "main"}, RepoLabel: "dune", RepoFullName: "Khady/dune"},
+	}, nil)
+	got := AddPRWorkspaces(snap, []PRRecord{
+		{FullName: "ocaml/dune", HeadFullName: "Khady/dune", Branch: "theirs", PR: PR{Number: 3}},
+	})
+	if len(got.Workspaces) != 2 {
+		t.Fatalf("workspaces = %+v, want the fork's clone to host it", got.Workspaces)
+	}
+}
+
+// A pull request in a repository workdash does not track has nowhere to go. Making
+// one up would produce a row whose actions cannot run.
+func TestAddPRWorkspacesIgnoresUntrackedRepositories(t *testing.T) {
+	snap := Index([]GitRecord{
+		{ID: ID{Host: "local", Repo: "/a", Branch: "main"}, RepoLabel: "dune", RepoFullName: "ocaml/dune"},
+	}, nil)
+	got := AddPRWorkspaces(snap, []PRRecord{{FullName: "someone/else", Branch: "x", PR: PR{Number: 4}}})
+	if len(got.Workspaces) != 1 {
+		t.Fatalf("workspaces = %+v, want nothing added for an untracked repository", got.Workspaces)
+	}
+}
+
+// Added workspaces have no commit date, so they must land where undated ones
+// belong — after everything dated — rather than wherever they were appended.
+func TestAddPRWorkspacesKeepsTheSnapshotSorted(t *testing.T) {
+	old := time.Unix(1000, 0)
+	snap := Index([]GitRecord{
+		{ID: ID{Host: "local", Repo: "/a", Branch: "dated"}, RepoLabel: "dune",
+			RepoFullName: "ocaml/dune", CommittedAt: &old},
+	}, nil)
+	got := AddPRWorkspaces(snap, []PRRecord{{FullName: "ocaml/dune", Branch: "undated", PR: PR{Number: 5}}})
+	if got.Workspaces[0].ID.Branch != "dated" {
+		t.Fatalf("order = %+v, want the dated workspace first", got.Workspaces)
+	}
+}
