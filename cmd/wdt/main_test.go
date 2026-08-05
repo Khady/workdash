@@ -103,14 +103,16 @@ func drawn(t *testing.T, a *app, height int) (offset, selected int) {
 	return offset, selected
 }
 
-// Tab through the views and the selected row must stay on screen.
+// Every view starts at its first row, drawn at the top.
 //
-// It did not. tview's trackEnd flag is sticky and set by any table shorter than
-// its viewport — the Tmux view, with one session on it — after which every longer
-// view is drawn scrolled to the very bottom while the selection sits at the top,
-// off screen. The fix has to survive passing through a short view, which is why
-// this walks the whole cycle rather than jumping straight to PRs.
-func TestTabbingThroughViewsKeepsTheSelectionOnScreen(t *testing.T) {
+// Tab used to carry the selection over. That kept your place only when the row
+// survived the new view's filter, so where you landed depended on which views you
+// had passed through — and it exposed tview's sticky trackEnd flag, set by any
+// table shorter than its viewport, which drew the next longer view scrolled to the
+// bottom with the selection off screen above. This walks the whole cycle rather
+// than jumping straight to PRs, because passing through the short Tmux view is
+// what used to break it.
+func TestTabStartsEachViewAtTheTop(t *testing.T) {
 	const height = 20
 	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
 	a := newApp(wdconf.Config{})
@@ -118,17 +120,22 @@ func TestTabbingThroughViewsKeepsTheSelectionOnScreen(t *testing.T) {
 	a.populate(false)
 	drawn(t, a, height)
 
+	// Driven through the real key handler, so the test cannot drift from what Tab
+	// actually does.
 	for _, label := range []string{"Tmux", "Worktrees", "PRs", "Branches", "All"} {
-		a.view = viewIndex(label)
-		a.populate(true)
+		a.handleKey(tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone))
+		if views[a.view].Label != label {
+			t.Fatalf("Tab landed on %q, want %q", views[a.view].Label, label)
+		}
 		offset, selected := drawn(t, a, height)
 		if len(a.shown) == 0 {
 			continue
 		}
-		// The header is fixed, so the visible data rows are offset+1 .. offset+height-1.
-		if selected <= offset || selected > offset+height-1 {
-			t.Fatalf("%s view: selected row %d is off screen with offset %d (rows %d..%d visible, %d shown)",
-				label, selected, offset, offset+1, offset+height-1, len(a.shown))
+		// A view change starts at the top, so the first data row is both selected and
+		// the first one drawn.
+		if selected != 1 || offset != 0 {
+			t.Fatalf("%s view: selected row %d at offset %d, want row 1 at offset 0 (%d shown)",
+				label, selected, offset, len(a.shown))
 		}
 	}
 }
@@ -156,5 +163,32 @@ func TestReloadKeepsTheViewportWhereItWas(t *testing.T) {
 	}
 	if selectedAfter != selectedBefore {
 		t.Fatalf("selection moved from row %d to %d across a reload", selectedBefore, selectedAfter)
+	}
+}
+
+// A snapshot that grows back must not leave the viewport at the bottom.
+//
+// This is the reload half of the trackEnd problem, and it is reachable: asia
+// unreachable leaves nine local rows, which is fewer than fit on screen, and any
+// table shorter than its viewport sets the flag. When the host comes back, the
+// reload preserves the selection — and without clearing the flag the offset is
+// pinned to the last row of eight hundred.
+func TestReloadAfterAShortSnapshotKeepsTheSelectionOnScreen(t *testing.T) {
+	const height = 20
+	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	a := newApp(wdconf.Config{})
+
+	few := manySnapshot(now)
+	few.Workspaces = few.Workspaces[:5]
+	a.rows = buildRows(now, few)
+	a.populate(false)
+	drawn(t, a, height)
+
+	a.rows = buildRows(now, manySnapshot(now))
+	a.populate(true)
+	offset, selected := drawn(t, a, height)
+	if selected <= offset || selected > offset+height-1 {
+		t.Fatalf("selected row %d is off screen with offset %d (rows %d..%d visible)",
+			selected, offset, offset+1, offset+height-1)
 	}
 }

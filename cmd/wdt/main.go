@@ -84,6 +84,9 @@ type app struct {
 	// modal names the page currently covering the table, if any. Keys go straight
 	// to it while it is up.
 	modal string
+	// title writes the terminal title. It is nil until run() opens the terminal, so
+	// constructing an app in a test touches no tty.
+	title *titler
 }
 
 func newApp(cfg wdconf.Config) *app {
@@ -112,7 +115,14 @@ func newApp(cfg wdconf.Config) *app {
 }
 
 func (a *app) run() error {
+	// Opened here rather than in newApp, so a test can build an app without
+	// touching a terminal. Pushing before the first title means quitting puts back
+	// whatever the window was called before.
+	a.title = newTitler()
+	a.title.push()
+	defer a.title.pop()
 	a.load()
+	a.renderChrome()
 	return a.tv.SetRoot(a.pages, true).EnableMouse(false).SetFocus(a.table).Run()
 }
 
@@ -162,13 +172,17 @@ func (a *app) handleKey(event *tcell.EventKey) *tcell.EventKey {
 	case tcell.KeyCtrlC:
 		a.tv.Stop()
 		return nil
+	// A view change starts at the top. Carrying the selection over was meant to keep
+	// your place, but the row set is different, so the row you land on is arbitrary
+	// — and when it does not survive the filter the selection resets anyway, which
+	// made where you ended up depend on which views you passed through.
 	case tcell.KeyTab:
 		a.view = nextView(a.view, 1)
-		a.populate(true)
+		a.populate(false)
 		return nil
 	case tcell.KeyBacktab:
 		a.view = nextView(a.view, -1)
-		a.populate(true)
+		a.populate(false)
 		return nil
 	case tcell.KeyCtrlR:
 		a.message = ""
@@ -363,6 +377,7 @@ func (a *app) renderChrome() {
 		height = 1
 	}
 	a.root.ResizeItem(a.notice, height, 0)
+	a.title.set(terminalTitle(a.view, a.query, len(a.shown)))
 }
 
 func (a *app) selected() *row {
