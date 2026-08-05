@@ -260,9 +260,24 @@ func (a *app) populate(preserve bool) {
 	if len(a.shown) > 0 {
 		a.table.Select(selected, 0)
 	}
-	if !preserve {
-		a.table.SetOffset(0, 0)
+	// SetOffset runs on both paths, because it is the only thing that clears
+	// tview's trackEnd — and trackEnd is sticky. Any table shorter than its
+	// viewport sets it at draw time, which the Tmux view is whenever you have a
+	// session or two, and every later draw then pins the offset to the bottom:
+	// Tab from there into Worktrees or PRs and the list opens on its last row with
+	// the selection off screen above. Select() alone cannot fix it, since the
+	// trackEnd assignment happens after the clamp that honours the selection.
+	//
+	// Where to put it differs. A view change re-derives the offset from scratch: the
+	// row set is different, so the old scroll position means nothing, and tview's
+	// clamp pulls the offset back down if the preserved row is far into the new
+	// list. A reload keeps the offset it had, so a row does not move under the
+	// cursor while you are reading it.
+	offsetRow, offsetColumn := 0, 0
+	if preserve {
+		offsetRow, offsetColumn = a.table.GetOffset()
 	}
+	a.table.SetOffset(offsetRow, offsetColumn)
 	a.renderChrome()
 }
 
