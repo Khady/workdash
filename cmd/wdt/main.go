@@ -336,6 +336,16 @@ func (a *app) setRow(index int, r row) {
 // in one colour would throw away every distinction the palette just made.
 const selectedBackground = tcell.ColorDarkSlateGray
 
+// selectedStyle changes only the background. ColorNone is tcell's "keep the
+// colour already on screen" sentinel; using white here would repaint text that
+// renderBadges coloured with tview tags, erasing the distinction between an
+// open, draft, merged and closed pull request on the selected row.
+func selectedStyle() tcell.Style {
+	return tcell.StyleDefault.
+		Foreground(tcell.ColorNone).
+		Background(selectedBackground)
+}
+
 func styled(text, color string, bold bool) *tview.TableCell {
 	style := tcell.StyleDefault.Foreground(tcell.GetColor(color)).Background(tcell.ColorBlack)
 	if bold {
@@ -345,17 +355,17 @@ func styled(text, color string, bold bool) *tview.TableCell {
 	// "[", which would otherwise be read as a colour tag and eat the text.
 	return tview.NewTableCell(tview.Escape(text)).
 		SetStyle(style).
-		SetSelectedStyle(style.Background(selectedBackground))
+		SetSelectedStyle(selectedStyle())
 }
 
 // tagged is for text that already carries its own colour tags: the badges keep
-// their hue when the row is selected because their reset tag falls back to the
-// cell's style, which is the same but for the background.
+// their hue when the row is selected because selectedStyle preserves the
+// foreground that each tag drew.
 func tagged(text string) *tview.TableCell {
 	style := tcell.StyleDefault.Foreground(tcell.ColorWhite).Background(tcell.ColorBlack)
 	return tview.NewTableCell(text).
 		SetStyle(style).
-		SetSelectedStyle(style.Background(selectedBackground))
+		SetSelectedStyle(selectedStyle())
 }
 
 func (a *app) renderChrome() {

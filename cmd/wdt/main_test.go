@@ -103,6 +103,63 @@ func drawn(t *testing.T, a *app, height int) (offset, selected int) {
 	return offset, selected
 }
 
+// Selection is a background, not a new foreground. In particular the PR hue is
+// its state, and losing it on the row you are about to act on hides the most
+// important moment to distinguish open, draft, merged and closed.
+func TestSelectedRowPreservesColumnColours(t *testing.T) {
+	a := newApp(wdconf.Config{})
+	a.rows = []row{{
+		Host:     "asia",
+		Repo:     "monorepo",
+		Branch:   "louis/selection",
+		Facets:   []badge{{Text: "W", Color: colorWorktree}, {Text: "S", Color: colorSession}},
+		Tracking: []badge{{Text: "+1", Color: colorPRDraft}, {Text: "-2", Color: colorMuted}},
+		PR:       badge{Text: "#42", Color: colorPRMerged},
+		Session:  "agent",
+		Age:      "2h",
+	}}
+	a.populate(false)
+
+	screen := tcell.NewSimulationScreen("UTF-8")
+	if err := screen.Init(); err != nil {
+		t.Fatalf("screen.Init() error = %v", err)
+	}
+	defer screen.Fini()
+	screen.SetSize(140, 4)
+	a.table.SetRect(0, 0, 140, 4)
+	a.table.Draw(screen)
+
+	want := map[rune]tcell.Color{
+		'a': tcell.GetColor(hostColor("asia")),
+		'W': tcell.GetColor(colorWorktree),
+		'S': tcell.GetColor(colorSession),
+		'+': tcell.GetColor(colorPRDraft),
+		'-': tcell.GetColor(colorMuted),
+		'#': tcell.GetColor(colorPRMerged),
+	}
+	found := map[rune]bool{}
+	for x := 0; x < 140; x++ {
+		r, _, style, _ := screen.GetContent(x, 1)
+		wantColor, ok := want[r]
+		if !ok || found[r] {
+			continue
+		}
+		foreground, background, _ := style.Decompose()
+		if foreground != wantColor {
+			t.Errorf("selected %q foreground = %s, want %s", r, foreground, wantColor)
+		}
+		if background != selectedBackground {
+			t.Errorf("selected %q background = %s, want %s", r, background, selectedBackground)
+		}
+		found[r] = true
+	}
+	for r := range want {
+		if !found[r] {
+			t.Errorf("selected row did not draw %q", r)
+		}
+	}
+}
+
 // Every view starts at its first row, drawn at the top.
 //
 // Tab used to carry the selection over. That kept your place only when the row
