@@ -82,6 +82,10 @@ func (r Remote) Attach(resolved action.Resolved) (string, error) {
 	// view — the unnamed form left tmux to call it "<base>-1" and never reaped it.
 	focus, err := r.currentWindow(resolved.Session)
 	if err != nil {
+		if sessionGone(err) {
+			return "", fmt.Errorf("nothing to attach to: session %q is gone on %s",
+				resolved.Session, resolved.Host)
+		}
 		return "", err
 	}
 	shown, err := r.view(resolved, resolved.Session, focus)

@@ -30,6 +30,11 @@ type recordRunner struct {
 	// `tmux has-session` probe answers from it and `tmux new-session` adds to
 	// it, so a second Pane on the same workspace sees the first one.
 	sessions map[string]bool
+	// failOn makes the commands containing it fail the way tmux does when the
+	// session they name is gone. Targeted rather than err, which fails
+	// everything: the paths worth testing are the ones that run only after the
+	// far side has said no.
+	failOn string
 }
 
 func (r *recordRunner) Run(cwd string, argv []string) (string, error) {
@@ -44,6 +49,9 @@ func (r *recordRunner) Run(cwd string, argv []string) (string, error) {
 		// quoting removed. Matching the raw element instead would see the escaped
 		// form ('\'') and read every -t= target as garbage.
 		text = unquoteOnce(argv[len(argv)-1])
+	}
+	if r.failOn != "" && strings.Contains(text, r.failOn) {
+		return "", errors.New("tmux: exit status 1: no server running on /tmp/tmux-1000/default")
 	}
 	if strings.Contains(text, "list-clients") {
 		return r.clients, nil
@@ -311,6 +319,33 @@ func TestAttachAttachesWhenOutsideTmux(t *testing.T) {
 		t.Fatalf("Attach() error = %v", err)
 	}
 	wantArgv(t, findCall(t, runner, "tmux attach"), []string{"tmux", "attach", "-t=sess"})
+}
+
+// The session on a row is a snapshot, so it can be gone by the time you click
+// attach — and tmux's own "no server running" reads as a broken machine rather
+// than as work that is over. Pane recreates what is gone; attach can only say so.
+func TestAttachSaysSoWhenTheSessionIsGone(t *testing.T) {
+	runner := &recordRunner{failOn: "switch-client"}
+	tmux := Tmux{Runner: runner, InsideTmux: true}
+	_, err := tmux.Attach(action.Resolved{ID: "attach", Name: "topic", Session: "gwt-local-x"})
+	if err == nil {
+		t.Fatal("Attach() error = nil, want a refusal naming the session that is gone")
+	}
+	if !strings.Contains(err.Error(), "gwt-local-x") || !strings.Contains(err.Error(), "gone") {
+		t.Fatalf("error = %q, want it to say the session is gone", err)
+	}
+}
+
+// Only that failure. A host that cannot be reached must keep its own error:
+// reported as finished work, it would send you looking for a session that is
+// still running.
+func TestAttachPassesOtherFailuresThrough(t *testing.T) {
+	runner := &recordRunner{err: errors.New("ssh: connect to host asia port 22: No route to host")}
+	tmux := Tmux{Runner: runner, InsideTmux: true}
+	_, err := tmux.Attach(action.Resolved{ID: "attach", Name: "topic", Session: "gwt-local-x"})
+	if err == nil || !strings.Contains(err.Error(), "No route to host") {
+		t.Fatalf("error = %v, want the transport failure passed through", err)
+	}
 }
 
 func TestAttachRefusesWithoutASession(t *testing.T) {

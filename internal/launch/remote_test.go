@@ -326,6 +326,35 @@ func TestRemotePaneFallsBackToTheHostAttach(t *testing.T) {
 	}
 }
 
+// Same on a remote host, where the raw failure is worse: the last session ending
+// takes the tmux server with it, so what came back was "ssh: exit status 1: no
+// server running" — a message about the machine, for work that simply finished.
+func TestRemoteAttachSaysSoWhenTheSessionIsGone(t *testing.T) {
+	runner := &recordRunner{failOn: "display-message"}
+	resolved := remoteResolved()
+	resolved.Session = "gwt-x"
+	_, err := remoteFixture(runner, true).Attach(resolved)
+	if err == nil {
+		t.Fatal("Attach() error = nil, want a refusal naming the session that is gone")
+	}
+	for _, want := range []string{"gwt-x", "gone", "asia"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %q, want it to contain %q", err, want)
+		}
+	}
+}
+
+// A host that cannot be reached is not a session that is gone.
+func TestRemoteAttachPassesTransportFailuresThrough(t *testing.T) {
+	runner := &recordRunner{err: errors.New("ssh: connect to host asia port 22: No route to host")}
+	resolved := remoteResolved()
+	resolved.Session = "gwt-x"
+	_, err := remoteFixture(runner, true).Attach(resolved)
+	if err == nil || !strings.Contains(err.Error(), "No route to host") {
+		t.Fatalf("error = %v, want the transport failure passed through", err)
+	}
+}
+
 // Attaching to a remote session must not create a window there: it opens a local
 // window that connects to the session as it is.
 func TestRemoteAttachAddsNoWindowToTheRemoteSession(t *testing.T) {

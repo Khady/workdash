@@ -258,9 +258,42 @@ func (t Tmux) Attach(resolved action.Resolved) (string, error) {
 		call = []string{"tmux", "attach", "-t" + exactTarget(resolved.Session)}
 	}
 	if _, err := t.Runner.Run("", call); err != nil {
+		if sessionGone(err) {
+			return "", fmt.Errorf("nothing to attach to: session %q is gone", resolved.Session)
+		}
 		return "", err
 	}
 	return fmt.Sprintf("attached to session %q", resolved.Session), nil
+}
+
+// sessionGone reports whether a tmux failure means the session is not there any
+// more, as opposed to tmux or the host being unreachable.
+//
+// The distinction matters because a session on a workspace is a snapshot: the
+// work can have finished since it was taken — the last window closing ends the
+// session, the last session ends the server — and tmux then answers "no server
+// running", which read as a broken machine rather than as work that is over.
+// Pane recreates what is gone; attach has nothing to connect to, so saying so is
+// all it can do. Everything else must pass through untouched: an unreachable host
+// reported as finished work would send you looking for a session that is still
+// running.
+//
+// The message text is the only signal — tmux exits 1 for all of these — and a
+// Runner that captures stderr folds it into the error, which is where ssh's
+// relayed remote stderr arrives too.
+func sessionGone(err error) bool {
+	text := strings.ToLower(err.Error())
+	for _, said := range []string{
+		"no server running",   // the session took the last server with it
+		"can't find session",  // the server outlived the session
+		"no such session",     // older tmux, same thing
+		"error connecting to", // the socket went with the server
+	} {
+		if strings.Contains(text, said) {
+			return true
+		}
+	}
+	return false
 }
 
 func (t Tmux) Capture(resolved action.Resolved) (string, error) {

@@ -29,7 +29,9 @@ Two consequences worth keeping:
   ends its window, the last window ends the session, and the last session ends
   the server. So `pane` probes with `tmux has-session` before targeting a session
   it was handed, and creates it again when it is gone, instead of failing with
-  `no server running` until the dashboard is refreshed by hand.
+  `no server running` until the dashboard is refreshed by hand. `attach` has
+  nothing to recreate, so it reports the session as gone rather than relaying a
+  message about the machine; a host that cannot be reached keeps its own error.
 
 ## Shape
 
