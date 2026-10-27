@@ -131,6 +131,15 @@ func (t Tmux) pane(resolved action.Resolved, options map[string]string) (string,
 	// happen to be attached to.
 	target := resolved.Session
 
+	// A session the snapshot recorded may be gone — the program it was opened for
+	// was quit, taking its last window with it — and `new-window -t` on a name that
+	// no longer exists fails. Forgetting it is what lets the same click work twice:
+	// the window lands wherever a window with no session belongs, including a fresh
+	// session of that name.
+	if target != "" && !t.hasSession(target) {
+		target = ""
+	}
+
 	// Where the user is looking. Inside tmux that is here, so no client has to be
 	// moved. Outside it — the Firefox host, a cron job — ask tmux.
 	viewer, hasViewer := client{}, false

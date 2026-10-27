@@ -260,12 +260,31 @@ func TestPaneTargetsTheWorkspacesExistingSessionInsideTmux(t *testing.T) {
 	if _, err := tmux.Pane(resolved); err != nil {
 		t.Fatalf("Pane() error = %v", err)
 	}
-	joined := strings.Join(runner.argv(0), " ")
+	window := findCall(t, runner, "new-window")
+	joined := strings.Join(window, " ")
 	if !strings.Contains(joined, "-t=gwt-local-x:") {
-		t.Fatalf("argv = %q, want the existing session targeted", runner.argv(0))
+		t.Fatalf("argv = %q, want the existing session targeted", window)
 	}
 	if !strings.Contains(joined, "-n topic") {
-		t.Fatalf("argv = %q, want the window still named after the branch", runner.argv(0))
+		t.Fatalf("argv = %q, want the window still named after the branch", window)
+	}
+}
+
+// The same locally: the session the snapshot recorded can be gone by the time the
+// action runs, and `new-window -t` on a name tmux no longer knows fails. Forgetting
+// it puts the window where a window with no session goes — here, the session the
+// caller is already in.
+func TestPaneForgetsASessionThatDiedSinceTheSnapshot(t *testing.T) {
+	runner := &recordRunner{}
+	tmux := Tmux{Runner: runner, InsideTmux: true}
+	resolved := action.Resolved{ID: "shell", Name: "topic", Session: "gwt-local-x",
+		Argv: []string{"bash"}, Cwd: "/wt/topic"}
+	if _, err := tmux.Pane(resolved); err != nil {
+		t.Fatalf("Pane() error = %v", err)
+	}
+	window := findCall(t, runner, "new-window")
+	if strings.Contains(strings.Join(window, " "), "gwt-local-x") {
+		t.Fatalf("argv = %q, want no target: the session is gone", window)
 	}
 }
 

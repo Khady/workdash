@@ -24,6 +24,12 @@ Two consequences worth keeping:
   Sessions are joined to worktrees by comparing paths, never by workdash
   bookkeeping, so a session you started with a name workdash would never pick
   attaches exactly the same way.
+- **A facet is what was true when it was collected.** The session on a row can
+  die between the snapshot and the click — quitting an editor opened in a pane
+  ends its window, the last window ends the session, and the last session ends
+  the server. So `pane` probes with `tmux has-session` before targeting a session
+  it was handed, and creates it again when it is gone, instead of failing with
+  `no server running` until the dashboard is refreshed by hand.
 
 ## Shape
 

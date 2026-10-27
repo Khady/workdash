@@ -67,6 +67,20 @@ func unquoteOnce(text string) string {
 	return out.String()
 }
 
+// remoteCommand returns the first remote command containing want. By content, not
+// by index: the executor probes the far side before it creates anything, and a
+// test pinned to call 0 breaks on a probe it does not care about.
+func remoteCommand(t *testing.T, runner *recordRunner, want string) string {
+	t.Helper()
+	for _, command := range remoteCommands(runner) {
+		if strings.Contains(command, want) {
+			return command
+		}
+	}
+	t.Fatalf("no remote command containing %q in %q", want, remoteCommands(runner))
+	return ""
+}
+
 func remoteResolved() action.Resolved {
 	return action.Resolved{ID: "agent", Name: "topic", Host: "asia",
 		Argv: []string{"claude"}, Cwd: "/srv/wt/topic"}
@@ -403,12 +417,27 @@ func TestRemotePaneLetsTmuxNameTheRemoteWindow(t *testing.T) {
 	if _, err := remoteFixture(runner, true).Pane(resolved); err != nil {
 		t.Fatalf("Pane() error = %v", err)
 	}
-	create := remoteCommands(runner)[0]
-	if !strings.Contains(create, "new-window") {
-		t.Fatalf("remote command = %q, want a new window", create)
-	}
+	create := remoteCommand(t, runner, "new-window")
 	if strings.Contains(create, " -n ") {
 		t.Fatalf("remote command = %q, want no -n: it pins the name and disables automatic-rename", create)
+	}
+}
+
+// A session on the workspace is a snapshot, not a fact about the host. Quitting
+// an editor opened in a pane ends its window, the last window ends the session,
+// and the last session ends the server — so the second click arrived carrying a
+// name that no longer existed and failed with "no server running" until the
+// dashboard was refreshed by hand. It has to create the session again instead.
+func TestRemotePaneRecreatesASessionThatDiedSinceTheSnapshot(t *testing.T) {
+	runner := &recordRunner{}
+	resolved := remoteResolved()
+	resolved.Session = "gwt-x"
+	if _, err := remoteFixture(runner, true).Pane(resolved); err != nil {
+		t.Fatalf("Pane() error = %v", err)
+	}
+	create := remoteCommand(t, runner, "new-session -d -s gwt-x")
+	if strings.Contains(create, "new-window") {
+		t.Fatalf("remote command = %q, want the dead session created, not a window in it", create)
 	}
 }
 
@@ -442,7 +471,7 @@ func TestRemotePaneFocusesTheWindowItCreated(t *testing.T) {
 	if _, err := remoteFixture(runner, true).Pane(resolved); err != nil {
 		t.Fatalf("Pane() error = %v", err)
 	}
-	create := remoteCommands(runner)[0]
+	create := remoteCommand(t, runner, "new-window")
 	if !strings.Contains(create, "#{window_id}") {
 		t.Fatalf("create = %q, want the new window's id printed back", create)
 	}

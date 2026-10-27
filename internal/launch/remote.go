@@ -39,7 +39,14 @@ func (r Remote) Pane(resolved action.Resolved) (string, error) {
 	argv := commandArgv(resolved)
 	create := []string{"tmux", "new-session", "-d", "-s", name, "-c", resolved.Cwd, "--"}
 	verb := "created remote session"
-	if resolved.Session != "" || r.hasSession(name) {
+	// Ask the host, even when the workspace carries a session: a snapshot says what
+	// was true when it was taken. Quitting the editor a pane was opened for ends its
+	// window, the last window ends the session, and the last session ends the
+	// server — so the name on screen outlives the thing it names, and adding a
+	// window to it failed with `no server running` until the dashboard was
+	// refreshed by hand. Probing makes the second click create the session again,
+	// which is what the first one did.
+	if r.hasSession(name) {
 		// No -n: tmux names the window after what is running and keeps that
 		// current. Passing a name would pin it and disable automatic-rename, and
 		// the branch is already the session's name — repeating it on every window
